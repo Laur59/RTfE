@@ -1812,7 +1812,10 @@ def note_unsatisfied_trait_reason
            "%DeletedAssign{has a deleted %select{copy|move}1 "
            "assignment operator}|"
            "%UnionWithUserDeclaredSMF{is a union with a user-declared "
-           "%sub{select_special_member_kind}1}"
+           "%sub{select_special_member_kind}1}|"
+           "%FunctionType{is a function type}|"
+           "%CVVoidType{is a cv void type}|"
+           "%IncompleteArrayType{is an incomplete array type}"
            "}0">;
 
 def warn_consteval_if_always_true : Warning<
@@ -2476,7 +2479,8 @@ def note_uninit_reference_member : Note<
   "uninitialized reference member is here">;
 def warn_field_requires_explicit_init : Warning<
   "field %select{%1|in %1}0 requires explicit initialization but is not "
-   "explicitly initialized">, InGroup<UninitializedExplicitInit>;
+   "explicitly initialized">, InGroup<UninitializedExplicitInit>,
+   ShowInSystemHeader;
 def warn_field_is_uninit : Warning<"field %0 is uninitialized when used here">,
   InGroup<Uninitialized>;
 def warn_base_class_is_uninit : Warning<
