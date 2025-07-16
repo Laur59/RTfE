@@ -16,7 +16,7 @@ jobs:
       with:
         ref: riscv-software
         fetch-depth: 0  # Full history needed for merge
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.WORKFLOW_TOKEN }}
 
     - name: Configure Git
       run: |
@@ -57,7 +57,15 @@ jobs:
         
         # Attempt to merge upstream changes
         if git merge upstream/main --no-edit; then
-          # If merge successful, update the commit message
+          # Check if there are workflow file changes and revert them
+          if git diff HEAD~1 --name-only | grep -q "^\.github/workflows/"; then
+            echo "Reverting workflow file changes from upstream"
+            git checkout HEAD~1 -- .github/workflows/
+            git add .github/workflows/
+            git commit --amend --no-edit
+          fi
+          
+          # Update the commit message
           git commit --amend -m "Automerge: Sync with upstream LLVM ($SHORT_HASH)"
           echo "Merge successful"
         else
