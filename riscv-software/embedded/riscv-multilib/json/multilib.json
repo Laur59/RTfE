@@ -1,0 +1,46 @@
+{
+    "libs": [
+        {
+            "variant": "rv32i",
+            "dir": "rv32i/ilp32",
+            "json": "riscv32_rv32i.json",
+            "flags": "--target=riscv32-unknown-elf -march=rv32i -mabi=ilp32"
+        },
+        {
+            "variant": "rv32im",
+            "dir": "rv32im/ilp32",
+            "json": "riscv32_rv32im.json",
+            "flags": "--target=riscv32-unknown-elf -march=rv32im -mabi=ilp32"
+        },
+        {
+            "variant": "rv32iac",
+            "dir": "rv32iac/ilp32",
+            "json": "riscv32_rv32iac.json",
+            "flags": "--target=riscv32-unknown-elf -march=rv32iac -mabi=ilp32"
+        },
+        {
+            "variant": "rv32",
+            "dir": "",
+            "json": "riscv32.json",
+            "flags": "--target=riscv32-unknown-elf -march=rv32imac -mabi=ilp32"
+        },
+        {
+            "variant": "rv32imafc",
+            "dir": "rv32imafc/ilp32f",
+            "json": "riscv32_rv32imafc.json",
+            "flags": "--target=riscv32-unknown-elf -march=rv32imafc -mabi=ilp32f"
+        },
+        {
+            "variant": "rv64",
+            "dir": "",
+            "json": "riscv64.json",
+            "flags": "--target=riscv64-unknown-elf -march=rv64imac -mabi=lp64 -mcmodel=medany"
+        },
+        {
+            "variant": "rv64imafdc",
+            "dir": "rv64imafdc/lp64d",
+            "json": "riscv64_rv64imafdc.json",
+            "flags": "--target=riscv64-unknown-elf -march=rv64imafdc -mabi=lp64d -mcmodel=medany"
+        }
+    ]
+}
