@@ -1,0 +1,46 @@
+# Here’s a minimal CMake example that reads multilib.json and generates the YAML lines for your template.
+cmake_minimum_required(VERSION 3.19)
+project(multilibjsondemo)
+
+set(MULTILIB_JSON "${CMAKE_CURRENT_SOURCE_DIR}/json/multilib.json")
+
+# Read the JSON file to load a multilib configuration.
+file(READ ${MULTILIB_JSON} multilib_json_str)
+string(JSON multilib_defs GET ${multilib_json_str} "libs")
+
+string(JSON lib_count LENGTH ${multilib_defs})
+math(EXPR lib_count_dec "${lib_count} - 1")
+
+foreach(lib_idx RANGE ${lib_count_dec})
+    string(JSON lib_def GET ${multilib_defs} ${lib_idx})
+    string(JSON variant GET ${lib_def} "variant")
+    # Get flags
+    string(JSON variant_multilib_flags GET ${lib_def} "flags")
+    # Get dir
+    string(JSON variant_multilib_dir GET ${lib_def} "dir")
+    # Sort by target triple
+    if(variant MATCHES "^riscv64")
+        set(parent_dir_name riscv64-unknown-elf)
+    else()
+        set(parent_dir_name riscv32-unknown-elf)
+    endif()
+    # Add the variant to the multilib yaml
+    if(variant_multilib_dir STREQUAL ".")
+        string(APPEND multilib_yaml_content "- Dir: ${parent_dir_name}\n")
+    else()
+        string(APPEND multilib_yaml_content "- Dir: ${parent_dir_name}/${variant_multilib_dir}\n")
+    endif()
+    string(APPEND multilib_yaml_content "  Flags:\n")
+    string(REPLACE " " ";" multilib_flags_list ${variant_multilib_flags})
+    foreach(flag ${multilib_flags_list})
+        string(APPEND multilib_yaml_content "  - ${flag}\n")
+    endforeach()
+    string(APPEND multilib_yaml_content "  Group: stdlibs\n")
+endforeach()
+
+# Now substitute this into your multilib.yaml.in
+configure_file(
+  ${CMAKE_CURRENT_SOURCE_DIR}/multilib.yaml.in
+  ${CMAKE_CURRENT_BINARY_DIR}/multilib.yaml
+  @ONLY
+)

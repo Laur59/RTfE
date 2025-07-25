@@ -246,7 +246,6 @@ ExternalProject_Add(
         ${CMAKE_COMMAND} -E copy_directory
         <BINARY_DIR>/tmpinstall/${target_triple}
         ${TEMP_LIB_DIR}
-        &&
     USES_TERMINAL_CONFIGURE TRUE
     USES_TERMINAL_BUILD TRUE
     USES_TERMINAL_INSTALL TRUE

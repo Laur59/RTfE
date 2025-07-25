@@ -2514,8 +2514,9 @@ SDValue LoongArchTargetLowering::lowerBUILD_VECTOR(SDValue Op,
     assert(ResTy.isVector());
 
     unsigned NumElts = ResTy.getVectorNumElements();
-    SDValue Vector = DAG.getUNDEF(ResTy);
-    for (unsigned i = 0; i < NumElts; ++i) {
+    SDValue Vector =
+        DAG.getNode(ISD::SCALAR_TO_VECTOR, DL, ResTy, Node->getOperand(0));
+    for (unsigned i = 1; i < NumElts; ++i) {
       Vector = DAG.getNode(ISD::INSERT_VECTOR_ELT, DL, ResTy, Vector,
                            Node->getOperand(i),
                            DAG.getConstant(i, DL, Subtarget.getGRLenVT()));
@@ -2597,12 +2598,9 @@ LoongArchTargetLowering::lowerEXTRACT_VECTOR_ELT(SDValue Op,
                                                  SelectionDAG &DAG) const {
   EVT VecTy = Op->getOperand(0)->getValueType(0);
   SDValue Idx = Op->getOperand(1);
-  EVT EltTy = VecTy.getVectorElementType();
   unsigned NumElts = VecTy.getVectorNumElements();
 
-  if (isa<ConstantSDNode>(Idx) &&
-      (EltTy == MVT::i32 || EltTy == MVT::i64 || EltTy == MVT::f32 ||
-       EltTy == MVT::f64 || Idx->getAsZExtVal() < NumElts / 2))
+  if (isa<ConstantSDNode>(Idx) && Idx->getAsZExtVal() < NumElts)
     return Op;
 
   return SDValue();
@@ -6030,10 +6028,9 @@ emitPseudoXVINSGR2VR(MachineInstr &MI, MachineBasicBlock *BB,
   Register ScratchReg1 = XSrc;
   if (Idx >= HalfSize) {
     ScratchReg1 = MRI.createVirtualRegister(RC);
-    BuildMI(*BB, MI, DL, TII->get(LoongArch::XVPERMI_Q), ScratchReg1)
+    BuildMI(*BB, MI, DL, TII->get(LoongArch::XVPERMI_D), ScratchReg1)
         .addReg(XSrc)
-        .addReg(XSrc)
-        .addImm(1);
+        .addImm(14);
   }
 
   Register ScratchSubReg1 = MRI.createVirtualRegister(SubRC);
