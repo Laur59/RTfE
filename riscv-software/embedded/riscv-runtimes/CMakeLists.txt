@@ -11,6 +11,8 @@
 # Changes:
 #   - Modified for building RISC-V compiler
 #   - Support only C library newlib
+#   - Removed all tests
+#   - Build only on linux
 
 # CMake build for a library variant, combining a chosen C library
 # with builtins from compiler-rt and libcx/libcxxabi/libunwind
@@ -37,6 +39,7 @@ if(VARIANT_JSON)
     # "LIBRARY_BUILD_TYPE":
     # "MULTILIB_DIR":
 
+    # Load arguments specific to the chosen library, overwriting any existing values.
     string(JSON json_args GET ${variant_json_read} "args" "common")
     string(JSON json_args_len LENGTH ${json_args})
     math(EXPR json_args_len_dec "${json_args_len} - 1")
@@ -47,23 +50,15 @@ if(VARIANT_JSON)
         set(${json_param}_def ${json_val})
         message("set(${json_param}_def ${json_val})")
     endforeach()
-    # Load arguments specific to the chosen library, overwriting any existing values.
-#     string(JSON json_args GET ${variant_json_read} "args" "newlib")
-#     string(JSON json_args_len LENGTH ${json_args})
-#     math(EXPR json_args_len_dec "${json_args_len} - 1")
-#     foreach(json_idx RANGE ${json_args_len_dec})
-#         string(JSON json_param MEMBER ${json_args} ${json_idx})
-#         string(JSON json_val GET ${json_args} ${json_param})
-#         string(JSON json_val_type TYPE ${json_args} ${json_param})
-#         set(${json_param}_def ${json_val})
-#     endforeach()
     set(ENABLE_CXX_LIBS_def OFF)
+else()
+    message(FATAL_ERROR "No JSON file provided!")
 endif()
 
 # Default values will be populated by the json above.
 # Any user specified options will override the default.
 set(TARGET_ARCH ${TARGET_ARCH_def} CACHE STRING "Architecture being targetted.")
-set(VARIANT ${VARIANT_def} CACHE STRING "Name for the variant, usually architecture + suffix.")
+set(VARIANT ${VARIANT_def} CACHE STRING "Name for the variant, usually /ISA, ABI) pair (e.g., rv32imac with ilp32).")
 set(COMPILE_FLAGS ${COMPILE_FLAGS_def} CACHE STRING "Flags required to build the variant.")
 
 set(ENABLE_EXCEPTIONS ${ENABLE_EXCEPTIONS_def} CACHE BOOL "Enable C++ exceptions.")
@@ -80,9 +75,10 @@ set(ENABLE_CXX_LIBS ${ENABLE_CXX_LIBS_def} CACHE BOOL "Build CXX libs")
 set(LLVM_BINARY_DIR "" CACHE PATH "Path to LLVM toolchain root to build libraries with")
 
 set(PROJECT_PREFIX "subproj" CACHE STRING "Directory to build subprojects in.")
-set(VARIANT_BUILD_ID "${VARIANT}" CACHE STRING "Name to use to identify build directories." )
+# set(VARIANT_BUILD_ID "${VARIANT}" CACHE STRING "Name to use to identify build directories." )
 
 # Temporary location to collect the libraries as they are built.
+# CMAKE_CURRENT_BINARY_DIR is the path defined by the BINARY_DIR of ExternalProject_Add
 set(TEMP_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/tmp_install")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -99,23 +95,13 @@ if(CMAKE_CXX_COMPILER_LAUNCHER)
     list(APPEND compiler_launcher_cmake_args "-DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}")
 endif()
 
-if(TARGET_ARCH MATCHES "^riscv64")
-    set(target_triple "riscv64-unknown-elf")
-    set(cpu_family riscv)
-else()
-    set(target_triple "riscv32-unknown-elf")
-    set(cpu_family riscv)
-endif()
+set(target_triple "${TARGET_ARCH}-unknown-elf")
+set(cpu_family riscv)
 
-# Create a single target for all testing. If no testing is enabled, this
-# will simply do nothing.
-add_custom_target(check-all)
-
-set(compile_arch_flags "--target=${target_triple} ${COMPILE_FLAGS} --sysroot ${TEMP_LIB_DIR}")
+set(compile_arch_flags "${COMPILE_FLAGS} --sysroot ${TEMP_LIB_DIR}")
 # Compiling the libraries benefits from some extra optimization
 # flags, and requires a sysroot.
 set(lib_compile_flags "${compile_arch_flags} -ffunction-sections -fdata-sections -fno-ident")
-message("set(lib_compile_flags \"${compile_arch_flags} -ffunction-sections -fdata-sections -fno-ident\")")
 
 # Generic target names for the C library.
 # Declare these now, since compiler-rt requires the 'install' dependency.
@@ -136,31 +122,19 @@ endif()
 # compiler-rt
 ###############################################################################
 
-# We can't always put the exact target
-# architecture in the triple, because compiler-rt's cmake
-# system doesn't recognize every possible Arm architecture
-# version. So mostly we just say 'arm' and control the arch
-# version via -march=armv7m (or whatever).
-# Exceptions are architectures pre-armv7, which compiler-rt expects to
-# see in the triple because that's where it looks to decide whether to
-# use specific assembly sources.
-if(NOT target_triple MATCHES "^(riscv64-unknown-elf|riscv32-unknown-elf)")
+if(NOT target_triple MATCHES "(riscv64-unknown-elf|riscv32-unknown-elf)")
     message(FATAL_ERROR "\
 Target triple name \"${target_triple}\" not compatible with compiler-rt.
 Use -march to specify the architecture.")
 endif()
 string(REPLACE "-unknown-" "-unknown-unknown-" normalized_target_triple ${target_triple})
 
-set(compiler_rt_cmake_args
--DCOMPILER_RT_EXCLUDE_LIBC_PROVIDED_ARM_AEABI_BUILTINS=ON
-)
-
 ExternalProject_Add(
     compiler_rt
-    STAMP_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT_BUILD_ID}/stamp
-    BINARY_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT_BUILD_ID}/build
-    DOWNLOAD_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT_BUILD_ID}/dl
-    TMP_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT_BUILD_ID}/tmp
+    STAMP_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT}/stamp
+    BINARY_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT}/build
+    DOWNLOAD_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT}/dl
+    TMP_DIR ${PROJECT_PREFIX}/compiler_rt/${VARIANT}/tmp
     SOURCE_DIR ${llvmproject_src_dir}/runtimes
     INSTALL_DIR compiler-rt/install
     CMAKE_ARGS
@@ -181,7 +155,6 @@ ExternalProject_Add(
     -DCMAKE_RANLIB=${LLVM_BINARY_DIR}/bin/llvm-ranlib${CMAKE_EXECUTABLE_SUFFIX}
     -DCMAKE_SYSTEM_NAME=Generic
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
-    ${compiler_rt_cmake_args}
     -DCOMPILER_RT_BAREMETAL_BUILD=ON
     -DCOMPILER_RT_BUILD_LIBFUZZER=OFF
     -DCOMPILER_RT_BUILD_PROFILE=OFF
@@ -210,7 +183,7 @@ ExternalProject_Add(
 # newlib
 ###############################################################################
 
-set(newlib_flags
+set(newlib_options
     --enable-newlib-io-long-long
     --enable-newlib-register-fini
     --disable-newlib-supplied-syscalls
@@ -243,8 +216,7 @@ execute_process(
     ERROR_VARIABLE clang_stderr
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
-message("\nriscv-runtimes newlib ${LLVM_BINARY_DIR}/bin/clang -target ${target_triple} -print-multi-lib section ${multi_libs}")
-message("\nriscv-runtimes newlib ${clang_stderr}\n")
+
 include(ProcessorCount)
 set(make_flags)
 ProcessorCount(nproc)
@@ -254,10 +226,10 @@ endif()
 
 ExternalProject_Add(
     newlib
-    STAMP_DIR ${PROJECT_PREFIX}/newlib/${VARIANT_BUILD_ID}/stamp
-    BINARY_DIR ${PROJECT_PREFIX}/newlib/${VARIANT_BUILD_ID}/build
-    DOWNLOAD_DIR ${PROJECT_PREFIX}/newlib/${VARIANT_BUILD_ID}/dl
-    TMP_DIR ${PROJECT_PREFIX}/newlib/${VARIANT_BUILD_ID}/tmp
+    STAMP_DIR ${PROJECT_PREFIX}/newlib/${VARIANT}/stamp
+    BINARY_DIR ${PROJECT_PREFIX}/newlib/${VARIANT}/build
+    DOWNLOAD_DIR ${PROJECT_PREFIX}/newlib/${VARIANT}/dl
+    TMP_DIR ${PROJECT_PREFIX}/newlib/${VARIANT}/tmp
     SOURCE_DIR ${newlib_SOURCE_DIR}
     INSTALL_DIR ${TEMP_LIB_DIR}
     CONFIGURE_COMMAND
@@ -266,14 +238,14 @@ ExternalProject_Add(
         --target=${target_triple}
         --prefix "${TEMP_LIB_DIR}"
         --exec_prefix <BINARY_DIR>/tmpinstall
-        ${newlib_flags}
+        ${newlib_options}
     BUILD_COMMAND
         ${CMAKE_COMMAND} -E env ${build_env}
         make ${make_flags}
-        &&
-        "${LLVM_BINARY_DIR}/bin/llvm-ar" rcs
-        <BINARY_DIR>/${target_triple}/libgloss/${cpu_family}/libcrt0-nosys.a
-        <BINARY_DIR>/${target_triple}/libgloss/${cpu_family}/crt0.o
+#         &&
+#         "${LLVM_BINARY_DIR}/bin/llvm-ar" rcs
+#         <BINARY_DIR>/${target_triple}/libgloss/${cpu_family}/libcrt0-nosys.a
+#         <BINARY_DIR>/${target_triple}/libgloss/${cpu_family}/crt0.o
     INSTALL_COMMAND
         make install
         &&
@@ -281,17 +253,17 @@ ExternalProject_Add(
         <BINARY_DIR>/tmpinstall/${target_triple}
         ${TEMP_LIB_DIR}
         &&
-        ${CMAKE_COMMAND} -E copy
-        <BINARY_DIR>/${target_triple}/libgloss/${cpu_family}/libcrt0-nosys.a
-        ${TEMP_LIB_DIR}/lib
-    # FIXME: TEST_COMMAND?
+        echo -e "******** Installing newlib ********"
+#         ${CMAKE_COMMAND} -E copy
+#         <BINARY_DIR>/${target_triple}/libgloss/${cpu_family}/libcrt0-nosys.a
+#         ${TEMP_LIB_DIR}/lib
     USES_TERMINAL_CONFIGURE TRUE
     USES_TERMINAL_BUILD TRUE
     USES_TERMINAL_INSTALL TRUE
     # Always run the build command so that incremental builds are correct.
     CONFIGURE_HANDLED_BY_BUILD TRUE
     TEST_EXCLUDE_FROM_MAIN TRUE
-    STEP_TARGETS configure build install # FIXME: test?
+    STEP_TARGETS configure build install
 )
 
 
@@ -323,10 +295,10 @@ if(ENABLE_CXX_LIBS)
 
     ExternalProject_Add(
         cxxlibs
-        STAMP_DIR ${PROJECT_PREFIX}/cxxlibs/${VARIANT_BUILD_ID}/stamp
-        BINARY_DIR ${PROJECT_PREFIX}/cxxlibs/${VARIANT_BUILD_ID}/build
-        DOWNLOAD_DIR ${PROJECT_PREFIX}/cxxlibs/${VARIANT_BUILD_ID}/dl
-        TMP_DIR ${PROJECT_PREFIX}/cxxlibs/${VARIANT_BUILD_ID}/tmp
+        STAMP_DIR ${PROJECT_PREFIX}/cxxlibs/${MULTILIB_DIR_def}/stamp
+        BINARY_DIR ${PROJECT_PREFIX}/cxxlibs/${MULTILIB_DIR_def}/build
+        DOWNLOAD_DIR ${PROJECT_PREFIX}/cxxlibs/${MULTILIB_DIR_def}/dl
+        TMP_DIR ${PROJECT_PREFIX}/cxxlibs/${MULTILIB_DIR_def}/tmp
         SOURCE_DIR ${llvmproject_src_dir}/runtimes
         INSTALL_DIR ${TEMP_LIB_DIR}
         DEPENDS compiler_rt-install clib-install
@@ -384,7 +356,7 @@ if(ENABLE_CXX_LIBS)
     )
 else() # if not ENABLE_CXX_LIBS
 
-    # The parent arm-multilib cmake script will still want to invoke
+    # The parent riscv-multilib cmake script will still want to invoke
     # build targets like 'cxxlibs-configure', whether we actually have
     # C++ libraries or not. So we should define them, even if they
     # don't do anything.

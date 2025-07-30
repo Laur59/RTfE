@@ -11,6 +11,8 @@
 # Changes:
 #   - Modified for building RISC-V compiler
 #   - Support only C library newlib
+#   - Removed all tests
+#   - Build only on linux
 
 
 # How to use this file
@@ -62,12 +64,13 @@
 # can be building the libraries since each one is configured separately.
 # To work around this, the variants that get built can be limited using
 # the LLVM_TOOLCHAIN_LIBRARY_VARIANTS option e.g.:
-#   cmake . '-DLLVM_TOOLCHAIN_LIBRARY_VARIANTS=aarch64;armv6m_soft_nofp'
+#   cmake . '-DLLVM_TOOLCHAIN_LIBRARY_VARIANTS=rv32i_ilp32;rv64imac_lp64'
 
 
-# CONFIGURE_HANDLED_BY_BUILD was introduced in CMake 3.20 and it
-# greatly speeds up incremental builds.
 cmake_minimum_required(VERSION 3.20)
+
+# Add CMake modules of project
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 set(TARGET_LIBRARIES_DIR
     "lib/clang-runtimes" CACHE STRING
@@ -146,6 +149,7 @@ set(LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS
     CACHE STRING "Components defined by this CMakeLists that should be
 installed by the install-llvm-toolchain target"
 )
+
 set(LLVM_ENABLE_PROJECTS clang;lld CACHE STRING "")
 set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE riscv64-unknown-elf CACHE STRING "")
@@ -188,7 +192,7 @@ set(CMAKE_INSTALL_MESSAGE NEVER CACHE STRING "")
 
 include(ExternalProject)
 include(FetchContent)
-include(ProcessorCount)
+# include(ProcessorCount)
 
 # Check out and patch newlib if required.
 #
@@ -200,7 +204,7 @@ include(ProcessorCount)
 #
 # If you want to stop cmake updating the repos then run
 # cmake . -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fetch_newlib.cmake)
+include(fetch_newlib)
 
 ##################################################################################################
 # We set all project properties later, this call is just to enable the
@@ -232,7 +236,7 @@ set(RISCV_TOOLCHAIN_ID
     "${ID_SUFFIX} (${builder_name_hash})" CACHE STRING
     "Toolchain ID to identify product."
 )
-message("RISCV_TOOLCHAIN_ID=${RISCV_TOOLCHAIN_ID}")
+
 cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH llvm_parent1)
 cmake_path(GET llvm_parent1 PARENT_PATH llvmproject_src_dir)
 add_subdirectory(
@@ -252,12 +256,6 @@ project(
 
 # Set package name for shorter archive file name
 set(SHORT_PACKAGE_NAME "RTfE")
-
-# Set directory name containing CFI ignore file
-set(TARGET_CFI_DIR
-    "lib/clang/${LLVM_VERSION_MAJOR}/share" CACHE STRING
-    "Directory containing the CFI ignore file."
-)
 
 # Set package name and version.
 if(DEFINED LLVM_TOOLCHAIN_PACKAGE_NAME)
@@ -288,11 +286,6 @@ add_dependencies(
     llvm-toolchain-runtimes
 )
 
-# Set LLVM_DEFAULT_EXTERNAL_LIT to the directory of clang
-# which was build in previous step. This path is not exported
-# by add_subdirectory of llvm project
-set(LLVM_DEFAULT_EXTERNAL_LIT "${LLVM_BINARY_DIR}/bin/llvm-lit")
-
 if(LIBS_DEPEND_ON_TOOLS)
     set(lib_tool_dependencies
         clang
@@ -304,8 +297,6 @@ if(LIBS_DEPEND_ON_TOOLS)
         llvm-strip
     )
 endif()
-
-set(library_subdir "")
 
 if(LIBS_USE_COMPILER_LAUNCHER)
     if(CMAKE_C_COMPILER_LAUNCHER)
@@ -325,13 +316,13 @@ string(REPLACE ";" "," ENABLE_VARIANTS_PASSTHROUGH "${LLVM_TOOLCHAIN_LIBRARY_VAR
 set(multilib_prefix ${CMAKE_BINARY_DIR}/multilib-builds)
 
 ExternalProject_Add(
-    multilib-newlib
+    multilib
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
-    STAMP_DIR ${multilib_prefix}/multilib/newlib-stamp
-    BINARY_DIR ${multilib_prefix}/multilib/newlib-build
-    DOWNLOAD_DIR ${multilib_prefix}/multilib/newlib-dl
-    TMP_DIR ${multilib_prefix}/multilib/newlib-tmp
-    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}
+    STAMP_DIR ${multilib_prefix}/multilib/stamp
+    BINARY_DIR ${multilib_prefix}/multilib/build
+    DOWNLOAD_DIR ${multilib_prefix}/multilib/dl
+    TMP_DIR ${multilib_prefix}/multilib/tmp
+    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}
     DEPENDS ${lib_tool_dependencies}
     CMAKE_ARGS
     ${compiler_launcher_cmake_args}
@@ -358,15 +349,7 @@ ExternalProject_Add(
 
 add_dependencies(
     llvm-toolchain-runtimes
-    multilib-newlib-install
-)
-
-FILE(WRITE "${CMAKE_BINARY_DIR}/llvm/${TARGET_CFI_DIR}/cfi_ignorelist.txt" "")
-install(
-    FILES
-    ${CMAKE_BINARY_DIR}/llvm/${TARGET_CFI_DIR}/cfi_ignorelist.txt
-    DESTINATION ${TARGET_CFI_DIR}
-    COMPONENT llvm-toolchain-libs
+    multilib-install
 )
 
 install(

@@ -1,45 +1,45 @@
 {
     "libs": [
         {
-            "variant": "rv32i",
+            "variant": "rv32i_ilp32",
             "dir": "rv32i/ilp32",
-            "json": "riscv32_rv32i.json",
+            "json": "rv32i_ilp32.json",
             "flags": "--target=riscv32-unknown-elf -march=rv32i -mabi=ilp32"
         },
         {
-            "variant": "rv32im",
+            "variant": "rv32im_ilp32",
             "dir": "rv32im/ilp32",
-            "json": "riscv32_rv32im.json",
+            "json": "rv32im_ilp32.json",
             "flags": "--target=riscv32-unknown-elf -march=rv32im -mabi=ilp32"
         },
         {
-            "variant": "rv32iac",
+            "variant": "rv32iac_ilp32",
             "dir": "rv32iac/ilp32",
-            "json": "riscv32_rv32iac.json",
+            "json": "rv32iac_ilp32.json",
             "flags": "--target=riscv32-unknown-elf -march=rv32iac -mabi=ilp32"
         },
         {
-            "variant": "rv32",
+            "variant": "rv32imac_ilp32",
             "dir": "",
-            "json": "riscv32.json",
+            "json": "rv32imac_ilp32.json",
             "flags": "--target=riscv32-unknown-elf -march=rv32imac -mabi=ilp32"
         },
         {
-            "variant": "rv32imafc",
+            "variant": "rv32imafc_ilp32f",
             "dir": "rv32imafc/ilp32f",
-            "json": "riscv32_rv32imafc.json",
+            "json": "rv32imafc_ilp32f.json",
             "flags": "--target=riscv32-unknown-elf -march=rv32imafc -mabi=ilp32f"
         },
         {
-            "variant": "rv64",
+            "variant": "rv64imac_lp64",
             "dir": "",
-            "json": "riscv64.json",
+            "json": "rv64imac_lp64.json",
             "flags": "--target=riscv64-unknown-elf -march=rv64imac -mabi=lp64 -mcmodel=medany"
         },
         {
-            "variant": "rv64imafdc",
+            "variant": "rv64imafdc_lp64d",
             "dir": "rv64imafdc/lp64d",
-            "json": "riscv64_rv64imafdc.json",
+            "json": "rv64imafdc_lp64d.json",
             "flags": "--target=riscv64-unknown-elf -march=rv64imafdc -mabi=lp64d -mcmodel=medany"
         }
     ]

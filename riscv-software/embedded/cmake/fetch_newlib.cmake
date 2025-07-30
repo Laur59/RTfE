@@ -27,7 +27,7 @@ FetchContent_Declare(newlib
     GIT_SHALLOW "${newlib_SHALLOW}"
     GIT_PROGRESS TRUE
     PATCH_COMMAND ${newlib_patch_command}
-    # Similarly to picolibc, we don't do the configuration here.
+    # We don't do the configuration here.
     SOURCE_SUBDIR do_not_add_newlib_subdir
 )
 FetchContent_MakeAvailable(newlib)

@@ -5,9 +5,18 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
+#
+# Copyright (c) 2025, Laurent von Allmen.
+# Part of the RISC-V Toolchain for Embedded project, under the Apache License v2.0 with LLVM Exceptions.
+#
+# Changes:
+#   - Modified for building RISC-V compiler
+#   - Support only C library newlib
+#   - Removed all tests
+#   - Build only on linux
 
 # If you're reading this file under the name 'multilib.yaml.in' in the
-# arm-software/embedded source tree, then it's not valid
+# riscv-software/embedded source tree, then it's not valid
 # YAML in its own right: it's a template that CMakeLists.txt will
 # expand into a real 'multilib.yaml' containing a list of library
 # variants and the flags that will select them.
@@ -32,8 +41,8 @@ MultilibVersion: '1.0'
 # nothing will ever include the _libc_ stdio.h, which was what the
 # #include_next was really looking for.
 Groups:
-- Name: stdlibs
-  Type: Exclusive
+  - Name: stdlibs
+    Type: Exclusive
 
 # The list of library variants is substituted in by CMakeLists.txt, so
 # that it can respect the LLVM_TOOLCHAIN_LIBRARY_VARIANTS setting and
@@ -41,6 +50,19 @@ Groups:
 
 Variants:
 @multilib_yaml_content@
+  - Dir: riscv64-unknown-unknown-elf/rv64i2p1_m2p0_a2p1_c2p0_zmmul1p0_zaamo1p0_zalrsc1p0_zca1p0/lp64
+    Flags:
+      - --target=riscv64-unknown-unknown-elf
+      - -march=rv64i2p1_m2p0_a2p1_c2p0_zmmul1p0_zaamo1p0_zalrsc1p0_zca1p0
+      - -mabi=lp64
+    Group: stdlibs
+
+  - Dir: riscv32-unknown-unknown-elf/rv32i2p1_m2p0_a2p1_c2p0_zmmul1p0_zaamo1p0_zalrsc1p0_zca1p0/ilp32
+    Flags:
+      - --target=riscv32-unknown-unknown-elf
+      - -march=rv32i2p1_m2p0_a2p1_c2p0_zmmul1p0_zaamo1p0_zalrsc1p0_zca1p0
+      - -mabi=ilp32
+    Group: stdlibs
 
 Mappings:
 

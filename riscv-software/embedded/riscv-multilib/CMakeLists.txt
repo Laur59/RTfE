@@ -11,6 +11,8 @@
 # Changes:
 #   - Modified for building RISC-V compiler
 #   - Support only C library newlib
+#   - Removed all tests
+#   - Build only on linux
 
 # CMake build for a multilib layout of library variants, with each
 # variant in a subdirectory and a multilib.yaml file to map flags to
@@ -20,7 +22,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(riscv-multilib)
 
-# Root directory of the ATfE CMake scripts.
+# Root directory of the RTfE CMake scripts.
 cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH TOOLCHAIN_SOURCE_DIR)
 # Root directory of the llvm-project source.
 cmake_path(GET TOOLCHAIN_SOURCE_DIR PARENT_PATH llvm_parent1)
@@ -57,7 +59,7 @@ foreach(arg
         list(APPEND passthrough_dirs "-D${arg}=${${arg}}")
     endif()
 endforeach()
-message("passthrough_dirs = ${passthrough_dirs}")
+
 find_package(Python3 REQUIRED COMPONENTS Interpreter) # needed by fetch_*.cmake
 
 include(ExternalProject)
@@ -66,25 +68,6 @@ list(APPEND passthrough_dirs "-DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SO
 
 # Target for any dependencies to build the runtimes project.
 add_custom_target(runtimes-depends)
-
-if(0)
-# Create one target to run all the tests.
-add_custom_target(check-newlib)
-add_custom_target(check-compiler-rt)
-add_custom_target(check-cxx)
-add_custom_target(check-cxxabi)
-add_custom_target(check-unwind)
-
-add_custom_target(check-all)
-add_dependencies(
-    check-all
-    check-newlib
-    check-compiler-rt
-    check-cxx
-    check-cxxabi
-    check-unwind
-)
-endif() # if(0)
 
 # Read the JSON file to load a multilib configuration.
 file(READ ${MULTILIB_JSON} multilib_json_str)
@@ -97,91 +80,78 @@ foreach(lib_idx RANGE ${lib_count_dec})
     string(JSON lib_def GET ${multilib_defs} ${lib_idx})
     string(JSON variant GET ${lib_def} "variant")
     set(additional_cmake_args "")
-message("at index ${lib_idx} is variant ${variant}")
 
     if(variant IN_LIST ENABLE_VARIANTS OR ENABLE_VARIANTS STREQUAL "all")
         string(JSON variant_multilib_flags GET ${lib_def} "flags")
-message("${lib_idx}: flags=${variant_multilib_flags}")
         string(JSON variant_multilib_dir GET ${lib_def} "dir")
-message("${lib_idx}: dir=${variant_multilib_dir}")
-        # Placeholder libraries won't have a json, so store the error in
-        # a variable so a fatal error isn't generated.
-        string(JSON variant_json ERROR_VARIABLE json_error GET ${lib_def} "json")
-message("${lib_idx}: json=${variant_json}")
+        string(JSON variant_json GET ${lib_def} "json")
 
-        if(NOT variant_json STREQUAL "json-NOTFOUND")
-            # Sort by target triple
-            if(variant MATCHES "^rv64")
-                set(parent_dir_name riscv64-unknown-elf)
-            else()
-                set(parent_dir_name riscv32-unknown-elf)
-            endif()
-            set(destination_directory "${CMAKE_CURRENT_BINARY_DIR}/multilib/${parent_dir_name}/${variant_multilib_dir}")
-message("${lib_idx}: DIRECTORY ${destination_directory}\n   DESTINATION ${parent_dir_name}")
-            install(
-                DIRECTORY ${destination_directory}
-                DESTINATION ${parent_dir_name}
-            )
-            set(variant_json_file ${CMAKE_CURRENT_SOURCE_DIR}/json/variants/${variant_json})
-
-            # Read info from the variant specific json.
-            file(READ ${variant_json_file} variant_json_str)
-
-            if(NUMERICAL_BUILD_NAMES)
-                set(runtimes_id ${lib_idx})
-                list(APPEND additional_cmake_args "-DVARIANT_BUILD_ID=${lib_idx}")
-            else()
-                set(runtimes_id ${variant})
-            endif()
-
-            ExternalProject_Add(
-                runtimes-${variant}
-                STAMP_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/stamp
-                BINARY_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/build
-                DOWNLOAD_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/dl
-                TMP_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/tmp
-                SOURCE_DIR ${TOOLCHAIN_SOURCE_DIR}/riscv-runtimes
-                INSTALL_DIR ${destination_directory}
-                DEPENDS runtimes-depends
-                CMAKE_ARGS
-                ${compiler_launcher_cmake_args}
-                ${passthrough_dirs}
-                ${additional_cmake_args}
-                -DVARIANT_JSON=${variant_json_file}
-                -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-                -DPROJECT_PREFIX=${PROJECT_PREFIX}
-                STEP_TARGETS build install
-                USES_TERMINAL_CONFIGURE FALSE
-                USES_TERMINAL_BUILD TRUE
-                LIST_SEPARATOR ,
-                CONFIGURE_HANDLED_BY_BUILD TRUE
-                TEST_EXCLUDE_FROM_MAIN TRUE
-            )
-
-            # Add the variant to the multilib yaml
-            if(variant_multilib_dir STREQUAL ".")
-                string(APPEND multilib_yaml_content "  - Dir: ${parent_dir_name}\n")
-            else()
-                string(APPEND multilib_yaml_content "  - Dir: ${parent_dir_name}/${variant_multilib_dir}\n")
-            endif()
-            string(APPEND multilib_yaml_content "    Flags:\n")
-            string(REPLACE " " ";" multilib_flags_list ${variant_multilib_flags})
-            foreach(flag ${multilib_flags_list})
-                string(APPEND multilib_yaml_content "      - ${flag}\n")
-            endforeach()
-            string(APPEND multilib_yaml_content "    Group: stdlibs\n")
+         # Sort by target triple
+        if(variant MATCHES "^rv64")
+            set(parent_dir_name riscv64-unknown-elf)
         else()
-            # In place of a json, an error message is expected.
-            string(JSON variant_error_msg GET ${lib_def} "error")
-
-            string(APPEND multilib_yaml_content "- Error: \"${variant_error_msg}\"\n")
-            string(APPEND multilib_yaml_content "  Flags:\n")
-            string(REPLACE " " ";" multilib_flags_list ${variant_multilib_flags})
-            foreach(flag ${multilib_flags_list})
-                string(APPEND multilib_yaml_content "  - ${flag}\n")
-            endforeach()
-            string(APPEND multilib_yaml_content "  Group: stdlibs\n")
+            set(parent_dir_name riscv32-unknown-elf)
         endif()
+        set(destination_directory "${CMAKE_CURRENT_BINARY_DIR}/multilib/${parent_dir_name}/${variant_multilib_dir}")
+        if(variant_multilib_dir STREQUAL "")
+            set(directory_to_install "${CMAKE_CURRENT_BINARY_DIR}/multilib/${parent_dir_name}/")
+        else()
+            get_filename_component(isa_dir ${variant_multilib_dir} DIRECTORY)
+            set(directory_to_install "${CMAKE_CURRENT_BINARY_DIR}/multilib/${parent_dir_name}/${isa_dir}")
+        endif()
+        install(
+            DIRECTORY ${directory_to_install}
+            DESTINATION ${parent_dir_name}
+        )
+        set(variant_json_file ${CMAKE_CURRENT_SOURCE_DIR}/json/variants/${variant_json})
+
+        # Read info from the variant specific json.
+        file(READ ${variant_json_file} variant_json_str)
+
+        if(NUMERICAL_BUILD_NAMES)
+            set(runtimes_id ${lib_idx})
+            list(APPEND additional_cmake_args "-DVARIANT_BUILD_ID=${lib_idx}")
+        else()
+            set(runtimes_id ${variant})
+        endif()
+
+        ExternalProject_Add(
+            runtimes-${variant}
+            STAMP_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/stamp
+            BINARY_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/build
+            DOWNLOAD_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/dl
+            TMP_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/tmp
+            SOURCE_DIR ${TOOLCHAIN_SOURCE_DIR}/riscv-runtimes
+            INSTALL_DIR ${destination_directory}
+            DEPENDS runtimes-depends
+            CMAKE_ARGS
+            ${compiler_launcher_cmake_args}
+            ${passthrough_dirs}
+            ${additional_cmake_args}
+            -DVARIANT_JSON=${variant_json_file}
+            -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+            -DPROJECT_PREFIX=${PROJECT_PREFIX}
+            -DVARIANT=${variant}
+            STEP_TARGETS build install
+            USES_TERMINAL_CONFIGURE FALSE
+            USES_TERMINAL_BUILD TRUE
+            LIST_SEPARATOR ,
+            CONFIGURE_HANDLED_BY_BUILD TRUE
+            TEST_EXCLUDE_FROM_MAIN TRUE
+        )
+
+        # Add the variant to the multilib yaml
+        if(variant_multilib_dir STREQUAL ".")
+            string(APPEND multilib_yaml_content "  - Dir: ${parent_dir_name}\n")
+        else()
+            string(APPEND multilib_yaml_content "  - Dir: ${parent_dir_name}/${variant_multilib_dir}\n")
+        endif()
+        string(APPEND multilib_yaml_content "    Flags:\n")
+        string(REPLACE " " ";" multilib_flags_list ${variant_multilib_flags})
+        foreach(flag ${multilib_flags_list})
+            string(APPEND multilib_yaml_content "      - ${flag}\n")
+        endforeach()
+        string(APPEND multilib_yaml_content "    Group: stdlibs\n")
     endif()
 
 endforeach()

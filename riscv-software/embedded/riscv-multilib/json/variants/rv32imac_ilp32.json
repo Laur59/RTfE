@@ -1,0 +1,15 @@
+{
+    "args": {
+        "common": {
+            "TARGET_ARCH": "riscv32",
+            "ISA": "rv32imac",
+            "ABI": "ilp32",
+            "VARIANT": "riscv32imac",
+            "COMPILE_FLAGS": "-march=rv32imac -mabi=ilp32",
+            "ENABLE_EXCEPTIONS": "OFF",
+            "ENABLE_RTTI": "OFF",
+            "LIBRARY_BUILD_TYPE": "release",
+            "MULTILIB_DIR": "rv32default"
+        }
+    }
+}

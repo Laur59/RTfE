@@ -1,0 +1,15 @@
+{
+    "args": {
+        "common": {
+            "TARGET_ARCH": "riscv64",
+            "ISA": "rv64imac",
+            "ABI": "lp64",
+            "VARIANT": "rv64imac",
+            "COMPILE_FLAGS": "-march=rv64imac -mabi=lp64 -mcmodel=medany",
+            "ENABLE_EXCEPTIONS": "OFF",
+            "ENABLE_RTTI": "OFF",
+            "LIBRARY_BUILD_TYPE": "release",
+            "MULTILIB_DIR": "rv64default"
+        }
+    }
+}
