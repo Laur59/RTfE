@@ -6576,10 +6576,8 @@ static bool isCombineInstrCandidateFP(const MachineInstr &Inst) {
     TargetOptions Options = Inst.getParent()->getParent()->getTarget().Options;
     // We can fuse FADD/FSUB with FMUL, if fusion is either allowed globally by
     // the target options or if FADD/FSUB has the contract fast-math flag.
-    return Options.UnsafeFPMath ||
-           Options.AllowFPOpFusion == FPOpFusion::Fast ||
+    return Options.AllowFPOpFusion == FPOpFusion::Fast ||
            Inst.getFlag(MachineInstr::FmContract);
-    return true;
   }
   return false;
 }
@@ -6682,9 +6680,8 @@ bool AArch64InstrInfo::isAssociativeAndCommutative(const MachineInstr &Inst,
   case AArch64::FMUL_ZZZ_H:
   case AArch64::FMUL_ZZZ_S:
   case AArch64::FMUL_ZZZ_D:
-    return Inst.getParent()->getParent()->getTarget().Options.UnsafeFPMath ||
-           (Inst.getFlag(MachineInstr::MIFlag::FmReassoc) &&
-            Inst.getFlag(MachineInstr::MIFlag::FmNsz));
+    return Inst.getFlag(MachineInstr::MIFlag::FmReassoc) &&
+           Inst.getFlag(MachineInstr::MIFlag::FmNsz);
 
   // == Integer types ==
   // -- Base instructions --
