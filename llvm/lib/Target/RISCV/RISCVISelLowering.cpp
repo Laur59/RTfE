@@ -3744,9 +3744,11 @@ static SDValue matchSplatAsGather(SDValue SplatVal, MVT VT, const SDLoc &DL,
   // different
   // FIXME: Support i1 vectors, maybe by promoting to i8?
   MVT EltTy = VT.getVectorElementType();
+  if (EltTy == MVT::i1 ||
+      !DAG.getTargetLoweringInfo().isTypeLegal(Src.getValueType()))
+    return SDValue();
   MVT SrcVT = Src.getSimpleValueType();
-  if (EltTy == MVT::i1 || EltTy != SrcVT.getVectorElementType() ||
-      !DAG.getTargetLoweringInfo().isTypeLegal(SrcVT))
+  if (EltTy != SrcVT.getVectorElementType())
     return SDValue();
   SDValue Idx = SplatVal.getOperand(1);
   // The index must be a legal type.
@@ -20546,9 +20548,9 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
             VT, DL, MGN->getChain(), BasePtr,
             DAG.getSignedConstant(StepNumerator, DL, XLenVT), MGN->getMask(),
             EVL, MGN->getMemOperand());
-        SDValue VPSelect = DAG.getNode(ISD::VP_SELECT, DL, VT, MGN->getMask(),
-                                       StridedLoad, MGN->getPassThru(), EVL);
-        return DAG.getMergeValues({VPSelect, SDValue(StridedLoad.getNode(), 1)},
+        SDValue Select = DAG.getSelect(DL, VT, MGN->getMask(), StridedLoad,
+                                       MGN->getPassThru());
+        return DAG.getMergeValues({Select, SDValue(StridedLoad.getNode(), 1)},
                                   DL);
       }
     }
