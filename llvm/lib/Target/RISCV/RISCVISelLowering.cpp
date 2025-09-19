@@ -434,8 +434,7 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::ABS, MVT::i32, Custom);
   }
 
-  if (!Subtarget.useCCMovInsn() && !Subtarget.hasVendorXTHeadCondMov() &&
-      !Subtarget.hasVendorXqcicm() && !Subtarget.hasVendorXqcics())
+  if (!Subtarget.useCCMovInsn() && !Subtarget.hasVendorXTHeadCondMov())
     setOperationAction(ISD::SELECT, XLenVT, Custom);
 
   if (Subtarget.hasVendorXqcia() && !Subtarget.is64Bit()) {
@@ -2506,6 +2505,14 @@ static void translateSetCCForBranch(const SDLoc &DL, SDValue &LHS, SDValue &RHS,
         CC = ISD::SETGE;
         return;
       }
+      if ((Subtarget.hasVendorXqcicm() || Subtarget.hasVendorXqcicli()) &&
+          C != INT64_MAX && isInt<5>(C + 1)) {
+        // We have a conditional move instruction for SETGE but not SETGT.
+        // Convert X > C to X >= C + 1, if (C + 1) is a 5-bit signed immediate.
+        RHS = DAG.getSignedConstant(C + 1, DL, RHS.getValueType());
+        CC = ISD::SETGE;
+        return;
+      }
       if (Subtarget.hasVendorXqcibi() && C != INT64_MAX && isInt<16>(C + 1)) {
         // We have a branch immediate instruction for SETGE but not SETGT.
         // Convert X > C to X >= C + 1, if (C + 1) is a 16-bit signed immediate.
@@ -2524,6 +2531,14 @@ static void translateSetCCForBranch(const SDLoc &DL, SDValue &LHS, SDValue &RHS,
       }
       break;
     case ISD::SETUGT:
+      if ((Subtarget.hasVendorXqcicm() || Subtarget.hasVendorXqcicli()) &&
+          C != INT64_MAX && isUInt<5>(C + 1)) {
+        // We have a conditional move instruction for SETUGE but not SETUGT.
+        // Convert X > C to X >= C + 1, if (C + 1) is a 5-bit signed immediate.
+        RHS = DAG.getConstant(C + 1, DL, RHS.getValueType());
+        CC = ISD::SETUGE;
+        return;
+      }
       if (Subtarget.hasVendorXqcibi() && C != INT64_MAX && isUInt<16>(C + 1)) {
         // We have a branch immediate instruction for SETUGE but not SETUGT.
         // Convert X > C to X >= C + 1, if (C + 1) is a 16-bit unsigned
@@ -10718,7 +10733,7 @@ static SDValue lowerCttzElts(SDNode *N, SelectionDAG &DAG,
   return DAG.getSelect(DL, XLenVT, Setcc, VL, Res);
 }
 
-static inline void promoteVCIXScalar(const SDValue &Op,
+static inline void promoteVCIXScalar(SDValue Op,
                                      SmallVectorImpl<SDValue> &Operands,
                                      SelectionDAG &DAG) {
   const RISCVSubtarget &Subtarget =
@@ -10754,7 +10769,7 @@ static inline void promoteVCIXScalar(const SDValue &Op,
   }
 }
 
-static void processVCIXOperands(SDValue &OrigOp,
+static void processVCIXOperands(SDValue OrigOp,
                                 SmallVectorImpl<SDValue> &Operands,
                                 SelectionDAG &DAG) {
   promoteVCIXScalar(OrigOp, Operands, DAG);
@@ -11017,7 +11032,7 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_WO_CHAIN(SDValue Op,
   return lowerVectorIntrinsicScalars(Op, DAG, Subtarget);
 }
 
-static inline SDValue getVCIXISDNodeWCHAIN(SDValue &Op, SelectionDAG &DAG,
+static inline SDValue getVCIXISDNodeWCHAIN(SDValue Op, SelectionDAG &DAG,
                                            unsigned Type) {
   SDLoc DL(Op);
   SmallVector<SDValue> Operands{Op->op_values()};
@@ -11054,7 +11069,7 @@ static inline SDValue getVCIXISDNodeWCHAIN(SDValue &Op, SelectionDAG &DAG,
   return NewNode;
 }
 
-static inline SDValue getVCIXISDNodeVOID(SDValue &Op, SelectionDAG &DAG,
+static inline SDValue getVCIXISDNodeVOID(SDValue Op, SelectionDAG &DAG,
                                          unsigned Type) {
   SmallVector<SDValue> Operands{Op->op_values()};
   Operands.erase(Operands.begin() + 1);
@@ -15144,6 +15159,10 @@ static unsigned getVecReduceOpcode(unsigned Opc) {
   case ISD::FADD:
     // Note: This is the associative form of the generic reduction opcode.
     return ISD::VECREDUCE_FADD;
+  case ISD::FMAXNUM:
+    return ISD::VECREDUCE_FMAX;
+  case ISD::FMINNUM:
+    return ISD::VECREDUCE_FMIN;
   }
 }
 
@@ -15172,13 +15191,22 @@ combineBinOpOfExtractToReduceTree(SDNode *N, SelectionDAG &DAG,
   const EVT VT = N->getValueType(0);
   const unsigned Opc = N->getOpcode();
 
-  // For FADD, we only handle the case with reassociation allowed.  We
-  // could handle strict reduction order, but at the moment, there's no
-  // known reason to, and the complexity isn't worth it.
-  // TODO: Handle fminnum and fmaxnum here
-  if (!VT.isInteger() &&
-      (Opc != ISD::FADD || !N->getFlags().hasAllowReassociation()))
-    return SDValue();
+  if (!VT.isInteger()) {
+    switch (Opc) {
+    default:
+      return SDValue();
+    case ISD::FADD:
+      // For FADD, we only handle the case with reassociation allowed.  We
+      // could handle strict reduction order, but at the moment, there's no
+      // known reason to, and the complexity isn't worth it.
+      if (!N->getFlags().hasAllowReassociation())
+        return SDValue();
+      break;
+    case ISD::FMAXNUM:
+    case ISD::FMINNUM:
+      break;
+    }
+  }
 
   const unsigned ReduceOpc = getVecReduceOpcode(Opc);
   assert(Opc == ISD::getVecReduceBaseOpcode(ReduceOpc) &&
@@ -22494,6 +22522,7 @@ RISCVTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
            "ReadCounterWide is only to be used on riscv32");
     return emitReadCounterWidePseudo(MI, BB);
   case RISCV::Select_GPR_Using_CC_GPR:
+  case RISCV::Select_GPR_Using_CC_Imm5_Zibi:
   case RISCV::Select_GPR_Using_CC_SImm5_CV:
   case RISCV::Select_GPRNoX0_Using_CC_SImm5NonZero_QC:
   case RISCV::Select_GPRNoX0_Using_CC_UImm5NonZero_QC:
