@@ -137,6 +137,7 @@ set(LLVM_DISTRIBUTION_COMPONENTS
     llvm-strip
     llvm-symbolizer
     scan-build
+    clang-tidy
     llc
     llvm-dwp
     LTO
@@ -150,7 +151,7 @@ set(LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS
 installed by the install-llvm-toolchain target"
 )
 
-set(LLVM_ENABLE_PROJECTS clang;lld CACHE STRING "")
+set(LLVM_ENABLE_PROJECTS clang;lld;clang-tools-extra CACHE STRING "")
 set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE riscv64-unknown-elf CACHE STRING "")
 set(LLVM_APPEND_VC_REV OFF CACHE BOOL "")
