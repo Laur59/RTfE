@@ -10,6 +10,7 @@ permissions:
 jobs:
   check_generated_files:
     runs-on: ubuntu-24.04
+    if: github.repository == 'llvm/llvm-project'
     steps:
       - name: Fetch LLVM sources
         uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6.0.0
