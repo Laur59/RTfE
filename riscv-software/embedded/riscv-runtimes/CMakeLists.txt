@@ -35,15 +35,6 @@ set(VARIANT_JSON "" CACHE STRING "JSON file to load args from.")
 if(VARIANT_JSON)
     file(READ ${VARIANT_JSON} variant_json_read)
     # Load arguments common to all libraries.
-    # "TARGET_ARCH":
-    # "VARIANT":
-    # "COMPILE_FLAGS":
-    # "ENABLE_EXCEPTIONS":
-    # "ENABLE_RTTI":
-    # "LIBRARY_BUILD_TYPE":
-    # "MULTILIB_DIR":
-
-    # Load arguments specific to the chosen library, overwriting any existing values.
     string(JSON json_args GET ${variant_json_read} "args" "common")
     string(JSON json_args_len LENGTH ${json_args})
     math(EXPR json_args_len_dec "${json_args_len} - 1")
@@ -76,12 +67,14 @@ set(LIBRARY_BUILD_TYPE ${LIBRARY_BUILD_TYPE_def} CACHE STRING "Build type to use
 set_property(CACHE LIBRARY_BUILD_TYPE PROPERTY STRINGS ${SUPPORTED_LIBRARY_BUILD_TYPES})
 
 set(ENABLE_CXX_LIBS ${ENABLE_CXX_LIBS_def} CACHE BOOL "Build CXX libs")
+# set(ENABLE_LIBC_TESTS ${ENABLE_LIBC_TESTS_def} CACHE BOOL "Enable libc tests (picolibc, newlib, newlib-nano or llvm-libc).")
+# set(ENABLE_COMPILER_RT_TESTS ${ENABLE_COMPILER_RT_TESTS_def} CACHE BOOL "Enable compiler-rt tests.")
+# set(ENABLE_LIBCXX_TESTS ${ENABLE_LIBCXX_TESTS_def} CACHE BOOL "Enable libcxx tests.")
 set(LLVM_BINARY_DIR "" CACHE PATH "Path to LLVM toolchain root to build libraries with")
 
 set(PROJECT_PREFIX "subproj" CACHE STRING "Directory to build subprojects in.")
 
 # Temporary location to collect the libraries as they are built.
-# CMAKE_CURRENT_BINARY_DIR is the path defined by the BINARY_DIR of ExternalProject_Add
 set(TEMP_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/tmp_install")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
@@ -162,6 +155,12 @@ string(REPLACE "-unknown-" "-unknown-unknown-" normalized_target_triple ${target
 #     )
 # endif()
 
+if(NOT C_LIBRARY STREQUAL "llvmlibc")
+    set(compiler_rt_cmake_args
+    -DCOMPILER_RT_EXCLUDE_LIBC_PROVIDED_ARM_AEABI_BUILTINS=ON
+  )
+endif()
+
 # Common compiler_rt flags used by both builtins and profile builds
 set(
     compiler_rt_common_flags
@@ -217,6 +216,37 @@ ExternalProject_Add(
         <INSTALL_DIR>/lib/${normalized_target_triple}
         "${TEMP_LIB_DIR}/lib"
 )
+
+# Build compiler-rt profile library after the C library is available.
+# ExternalProject_Add(
+#     compiler_rt_profile
+#     STAMP_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/stamp
+#     BINARY_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/build
+#     DOWNLOAD_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/dl
+#     TMP_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/tmp
+#     SOURCE_DIR ${llvmproject_src_dir}/runtimes
+#     INSTALL_DIR compiler-rt-profile/install
+#     DEPENDS compiler_rt-install clib-install
+#     CMAKE_ARGS
+#     ${compiler_rt_common_flags}
+#     ${compiler_launcher_cmake_args}
+#     ${compiler_rt_cmake_args}
+#     -DCOMPILER_RT_BUILD_BUILTINS=OFF
+#     -DCOMPILER_RT_BUILD_PROFILE=ON
+#     -DCOMPILER_RT_PROFILE_BAREMETAL=ON
+#     STEP_TARGETS configure build install
+#     USES_TERMINAL_CONFIGURE TRUE
+#     USES_TERMINAL_BUILD TRUE
+#     USES_TERMINAL_INSTALL TRUE
+#     LIST_SEPARATOR ,
+#     CONFIGURE_HANDLED_BY_BUILD TRUE
+#     INSTALL_COMMAND ${CMAKE_COMMAND} --install .
+#     COMMAND
+#         ${CMAKE_COMMAND}
+#         -E copy_directory
+#         <INSTALL_DIR>/lib/${normalized_target_triple}
+#         "${TEMP_LIB_DIR}/lib"
+# )
 
 ###############################################################################
 # picolibc
@@ -451,16 +481,9 @@ if(C_LIBRARY MATCHES "^newlib")
         "RANLIB_FOR_TARGET=${LLVM_BINARY_DIR}/bin/llvm-ranlib"
         "READELF_FOR_TARGET=${LLVM_BINARY_DIR}/bin/llvm-readelf"
         "STRIP_FOR_TARGET=${LLVM_BINARY_DIR}/bin/llvm-strip"
-        "CFLAGS_FOR_TARGET=${flags} ${newlib_optim_flags} ${lib_compile_flags} -Wno-error=implicit-function-declaration -D__USES_INITFINI__ -U_HAVE_INIT_FINI -Wno-unknown-pragmas -Qunused-arguments"
-        "CCASFLAGS=${flags} ${newlib_optim_flags} ${lib_compile_flags} -Wno-error=implicit-function-declaration -D__USES_INITFINI__ -U_HAVE_INIT_FINI -Wno-unknown-pragmas -Qunused-arguments"
+        "CFLAGS_FOR_TARGET=${flags} ${newlib_optim_flags} ${lib_compile_flags} -Wno-error=implicit-function-declaration -D__USES_INITFINI__ -U_HAVE_INIT_FINI"
+        "CCASFLAGS=${flags} ${newlib_optim_flags} ${lib_compile_flags} -Wno-error=implicit-function-declaration -D__USES_INITFINI__ -U_HAVE_INIT_FINI"
     )
-#     execute_process(
-#         COMMAND ${LLVM_BINARY_DIR}/bin/clang -target ${target_triple} -print-multi-lib
-#         RESULT_VARIABLE clang_result
-#         OUTPUT_VARIABLE multi_libs
-#         ERROR_VARIABLE clang_stderr
-#         OUTPUT_STRIP_TRAILING_WHITESPACE
-#     )
 
     include(ProcessorCount)
     set(make_flags)

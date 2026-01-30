@@ -92,6 +92,51 @@ endif()
 # Target for any dependencies to build the runtimes project.
 add_custom_target(runtimes-depends)
 
+# Create one target to run all the tests.
+# add_custom_target(check-${C_LIBRARY})
+# add_custom_target(check-compiler-rt)
+# add_custom_target(check-cxx)
+# add_custom_target(check-cxxabi)
+# add_custom_target(check-unwind)
+#
+# add_custom_target(check-all)
+# add_dependencies(
+#     check-all
+#     check-${C_LIBRARY}
+#     check-compiler-rt
+#     check-cxx
+#     check-cxxabi
+#     check-unwind
+# )
+
+if(ENABLE_PARALLEL_LIB_CONFIG OR ENABLE_PARALLEL_LIB_BUILD)
+    # Additional targets to build the variant subprojects in parallel.
+    # The build steps can use multible jobs to compile in parallel, but
+    # the configuration steps are largely single threaded. This creates a
+    # bottleneck if each variant is built in series.
+    # It is significantly faster to run all the subproject configuration
+    # steps in parallel, run the build steps, then run the next set of
+    # configuration steps in parallel, etc.
+    set(
+        subtargets
+        compiler_rt-configure
+        compiler_rt-build
+        clib-configure
+        clib-build
+        cxxlibs-configure
+        cxxlibs-build
+    )
+    set(subtarget_deps none ${subtargets})
+    list(REMOVE_AT subtarget_deps 6)
+
+    foreach(subtarget subtarget_dep IN ZIP_LISTS subtargets subtarget_deps)
+        add_custom_target(${subtarget}-all)
+        if(NOT subtarget_dep STREQUAL "none")
+            add_dependencies(${subtarget}-all ${subtarget_dep}-all)
+        endif()
+    endforeach()
+endif()
+
 # Read the JSON file to load a multilib configuration.
 file(READ ${MULTILIB_JSON} multilib_json_str)
 string(JSON multilib_defs GET ${multilib_json_str} "libs")
