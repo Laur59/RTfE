@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
-# Copyright (c) 2025, Laurent von Allmen.
+# Copyright (c) 2025-2026, Laurent von Allmen.
 # Part of the RISC-V Toolchain for Embedded project, under the Apache License v2.0 with LLVM Exceptions.
 #
 # Changes:
@@ -69,6 +69,9 @@
 
 cmake_minimum_required(VERSION 3.20)
 
+# Add CMake modules of project
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
 set(TARGET_LIBRARIES_DIR
     "lib/clang-runtimes" CACHE STRING
     "Directory containing the target libraries."
@@ -95,12 +98,27 @@ option(
     be used to speed up repeated builds. This is not done by default,
     as it can also make the inital build slower due to the cold cache."
 )
+option(
+    ENABLE_PARALLEL_LIB_CONFIG
+    "Run the library variant configuration steps in parallel."
+    OFF
+)
+option(
+    ENABLE_PARALLEL_LIB_BUILD
+    "Run the library variant build steps in parallel."
+    OFF
+)
+set(PARALLEL_LIB_BUILD_LEVELS
+    "1" CACHE STRING
+    "If ENABLE_PARALLEL_LIB_BUILD is ON, this number of processes will be assigned to each variant built."
+)
+
 set(LLVM_TOOLCHAIN_C_LIBRARY
     "newlib" CACHE STRING
     "Which C library to use."
 )
 set_property(CACHE LLVM_TOOLCHAIN_C_LIBRARY
-    PROPERTY STRINGS newlib)
+    PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
 
 option(
     SHORT_BUILD_PATHS
@@ -134,6 +152,7 @@ set(LLVM_DISTRIBUTION_COMPONENTS
     llvm-strip
     llvm-symbolizer
     scan-build
+    clang-tidy
     llc
     llvm-dwp
     LTO
@@ -146,7 +165,7 @@ set(LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS
     CACHE STRING "Components defined by this CMakeLists that should be
 installed by the install-llvm-toolchain target"
 )
-set(LLVM_ENABLE_PROJECTS clang;lld CACHE STRING "")
+set(LLVM_ENABLE_PROJECTS clang;lld;clang-tools-extra CACHE STRING "")
 set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE riscv64-unknown-elf CACHE STRING "")
 set(LLVM_APPEND_VC_REV OFF CACHE BOOL "")
@@ -190,9 +209,10 @@ include(ExternalProject)
 include(FetchContent)
 include(ProcessorCount)
 
-# Check out and patch newlib if required.
+# Check out and patch picolibc or newlib if required.
 #
 # If you'd rather check out and patch manually then run cmake with
+# -DFETCHCONTENT_SOURCE_DIR_PICOLIBC=/path/to/picolibc
 # -DFETCHCONTENT_SOURCE_DIR_NEWLIB=/path/to/newlib
 #
 # By default check out will be silent but this can be changed by running
@@ -200,7 +220,12 @@ include(ProcessorCount)
 #
 # If you want to stop cmake updating the repos then run
 # cmake . -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fetch_newlib.cmake)
+if(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL picolibc)
+    include(fetch_picolibc)
+endif()
+if(LLVM_TOOLCHAIN_C_LIBRARY MATCHES "^newlib")
+    include(fetch_newlib)
+endif()
 
 ##################################################################################################
 # We set all project properties later, this call is just to enable the
@@ -232,8 +257,7 @@ set(RISCV_TOOLCHAIN_ID
     "${ID_SUFFIX} (${builder_name_hash})" CACHE STRING
     "Toolchain ID to identify product."
 )
-cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH llvm_parent1)
-cmake_path(GET llvm_parent1 PARENT_PATH llvmproject_src_dir)
+cmake_path(SET llvmproject_src_dir NORMALIZE "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 add_subdirectory(
     ${llvmproject_src_dir}/llvm llvm
 )
@@ -313,17 +337,17 @@ string(REPLACE ";" "," ENABLE_VARIANTS_PASSTHROUGH "${LLVM_TOOLCHAIN_LIBRARY_VAR
 set(multilib_prefix ${CMAKE_BINARY_DIR}/multilib-builds)
 
 ExternalProject_Add(
-    multilib-newlib
+    multilib-${LLVM_TOOLCHAIN_C_LIBRARY}
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
-    STAMP_DIR ${multilib_prefix}/multilib/newlib-stamp
-    BINARY_DIR ${multilib_prefix}/multilib/newlib-build
-    DOWNLOAD_DIR ${multilib_prefix}/multilib/newlib-dl
-    TMP_DIR ${multilib_prefix}/multilib/newlib-tmp
+    STAMP_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-stamp
+    BINARY_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-build
+    DOWNLOAD_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-dl
+    TMP_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-tmp
     INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}
     DEPENDS ${lib_tool_dependencies}
     CMAKE_ARGS
     ${compiler_launcher_cmake_args}
-    -DC_LIBRARY="newlib"
+    -DC_LIBRARY=${LLVM_TOOLCHAIN_C_LIBRARY}
     -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
     -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
     -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
@@ -341,7 +365,7 @@ ExternalProject_Add(
 
 add_dependencies(
     llvm-toolchain-runtimes
-    multilib-newlib-install
+    multilib-${LLVM_TOOLCHAIN_C_LIBRARY}-install
 )
 
 install(

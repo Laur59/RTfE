@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
-# Copyright (c) 2025, Laurent von Allmen.
+# Copyright (c) 2025-2026, Laurent von Allmen.
 # Part of the RISC-V Toolchain for Embedded project, under the Apache License v2.0 with LLVM Exceptions.
 #
 # Changes:
@@ -24,8 +24,12 @@ project(riscv-runtimes)
 # Root directory of the RTfE CMake scrpts.
 cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH TOOLCHAIN_SOURCE_DIR)
 # Root directory of the llvm-project source.
-cmake_path(GET TOOLCHAIN_SOURCE_DIR PARENT_PATH llvm_parent1)
-cmake_path(GET llvm_parent1 PARENT_PATH llvmproject_src_dir)
+cmake_path(SET llvmproject_src_dir NORMALIZE "${TOOLCHAIN_SOURCE_DIR}/../..")
+
+# CMake arguments are loaded from the JSON file depending on which C
+# library is used, so this must be set before the JSON is processed.
+set(C_LIBRARY "newlib" CACHE STRING "Which C library to use.")
+set_property(CACHE C_LIBRARY PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
 
 set(VARIANT_JSON "" CACHE STRING "JSON file to load args from.")
 if(VARIANT_JSON)
@@ -63,9 +67,10 @@ set(COMPILE_FLAGS ${COMPILE_FLAGS_def} CACHE STRING "Flags required to build the
 set(ENABLE_EXCEPTIONS ${ENABLE_EXCEPTIONS_def} CACHE BOOL "Enable C++ exceptions.")
 set(ENABLE_RTTI ${ENABLE_RTTI_def} CACHE BOOL "Enable C++ exceptions.")
 
-set(SUPPORTED_LIBRARY_BUILD_TYPES minsizerelease release)
+set(SUPPORTED_LIBRARY_BUILD_TYPES minsizerelease release releasewithdebuginfo)
 if(NOT LIBRARY_BUILD_TYPE_def IN_LIST SUPPORTED_LIBRARY_BUILD_TYPES)
-    message(FATAL_ERROR "Unsupported LIBRARY_BUILD_TYPE value. Supported values are: minsizerelease, release.")
+    string(REPLACE ";" ", " SUPPORTED_LIBRARY_BUILD_TYPES_STR "${SUPPORTED_LIBRARY_BUILD_TYPES}")
+    message(FATAL_ERROR "Unsupported LIBRARY_BUILD_TYPE value. Supported values are: ${SUPPORTED_LIBRARY_BUILD_TYPES_STR}")
 endif()
 set(LIBRARY_BUILD_TYPE ${LIBRARY_BUILD_TYPE_def} CACHE STRING "Build type to use in library builds.")
 set_property(CACHE LIBRARY_BUILD_TYPE PROPERTY STRINGS ${SUPPORTED_LIBRARY_BUILD_TYPES})
@@ -98,7 +103,7 @@ set(cpu_family riscv)
 
 set(compile_arch_flags "${COMPILE_FLAGS} --sysroot ${TEMP_LIB_DIR}")
 # Compiling the libraries benefits from some extra optimization
-# flags, and requires a sysroot.
+# flags, and requires a sysroot or include folder for LLVM libc build.
 set(lib_compile_flags "${compile_arch_flags} -ffunction-sections -fdata-sections -fno-ident")
 
 # Generic target names for the C library.
@@ -114,6 +119,9 @@ if(LIBRARY_BUILD_TYPE STREQUAL minsizerelease)
 elseif(LIBRARY_BUILD_TYPE STREQUAL release)
     set(LIBRARY_CMAKE_BUILD_TYPE Release)
     set(LIBRARY_MESON_BUILD_TYPE release)
+elseif(LIBRARY_BUILD_TYPE STREQUAL releasewithdebuginfo)
+    set(LIBRARY_CMAKE_BUILD_TYPE RelWithDebInfo)
+    set(LIBRARY_MESON_BUILD_TYPE debugoptimized)
 endif()
 
 ###############################################################################
@@ -127,16 +135,9 @@ Use -march to specify the architecture.")
 endif()
 string(REPLACE "-unknown-" "-unknown-unknown-" normalized_target_triple ${target_triple})
 
-ExternalProject_Add(
-    compiler_rt
-    STAMP_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/stamp
-    BINARY_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/build
-    DOWNLOAD_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/dl
-    TMP_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/tmp
-    SOURCE_DIR ${llvmproject_src_dir}/runtimes
-    INSTALL_DIR compiler-rt/install
-    CMAKE_ARGS
-    ${compiler_launcher_cmake_args}
+# Common compiler_rt flags used by both builtins and profile builds
+set(
+    compiler_rt_common_flags
     -DCMAKE_AR=${LLVM_BINARY_DIR}/bin/llvm-ar${CMAKE_EXECUTABLE_SUFFIX}
     -DCMAKE_ASM_COMPILER_TARGET=${target_triple}
     -DCMAKE_ASM_FLAGS=${lib_compile_flags}
@@ -155,12 +156,25 @@ ExternalProject_Add(
     -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
     -DCOMPILER_RT_BAREMETAL_BUILD=ON
     -DCOMPILER_RT_BUILD_LIBFUZZER=OFF
-    -DCOMPILER_RT_BUILD_PROFILE=OFF
     -DCOMPILER_RT_BUILD_SANITIZERS=OFF
     -DCOMPILER_RT_BUILD_XRAY=OFF
     -DCOMPILER_RT_DEFAULT_TARGET_ONLY=ON
     -DLLVM_ENABLE_RUNTIMES=compiler-rt
     -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON
+)
+
+ExternalProject_Add(
+    compiler_rt
+    STAMP_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/stamp
+    BINARY_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/build
+    DOWNLOAD_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/dl
+    TMP_DIR ${PROJECT_PREFIX}/compiler_rt/${MULTILIB_DIR_def}/tmp
+    SOURCE_DIR ${llvmproject_src_dir}/runtimes
+    INSTALL_DIR compiler-rt/install
+    CMAKE_ARGS
+    ${compiler_rt_common_flags}
+    ${compiler_launcher_cmake_args}
+    -DCOMPILER_RT_BUILD_PROFILE=OFF
     STEP_TARGETS configure build install
     USES_TERMINAL_CONFIGURE TRUE
     USES_TERMINAL_BUILD TRUE
