@@ -5,7 +5,7 @@
 # See https://llvm.org/LICENSE.txt for license information.
 # SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 #
-# Copyright (c) 2025, Laurent von Allmen.
+# Copyright (c) 2025-2026, Laurent von Allmen.
 # Part of the RISC-V Toolchain for Embedded project, under the Apache License v2.0 with LLVM Exceptions.
 #
 # Changes:
@@ -25,14 +25,13 @@ project(riscv-multilib)
 # Root directory of the RTfE CMake scripts.
 cmake_path(GET CMAKE_CURRENT_SOURCE_DIR PARENT_PATH TOOLCHAIN_SOURCE_DIR)
 # Root directory of the llvm-project source.
-cmake_path(GET TOOLCHAIN_SOURCE_DIR PARENT_PATH llvm_parent1)
-cmake_path(GET llvm_parent1 PARENT_PATH llvmproject_src_dir)
+cmake_path(SET llvmproject_src_dir NORMALIZE "${TOOLCHAIN_SOURCE_DIR}/../..")
 
 # Cache variables to be set by user
 set(MULTILIB_JSON "" CACHE STRING "JSON file to load library definitions from.")
 set(ENABLE_VARIANTS "all" CACHE STRING "Semicolon separated list of variants to build, or \"all\". Must match entries in the json.")
 set(C_LIBRARY "newlib" CACHE STRING "Which C library to use.")
-set_property(CACHE C_LIBRARY PROPERTY STRINGS newlib)
+set_property(CACHE C_LIBRARY PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
 set(PROJECT_PREFIX "${CMAKE_BINARY_DIR}/lib-builds" CACHE STRING "Directory to build subprojects in.")
 option(
     NUMERICAL_BUILD_NAMES
@@ -40,6 +39,25 @@ option(
     OFF
 )
 set(LLVM_BINARY_DIR "" CACHE PATH "Path to LLVM toolchain build or install root.")
+option(
+    ENABLE_PARALLEL_LIB_CONFIG
+    "Run the library variant configuration steps in parallel."
+    OFF
+)
+option(
+    ENABLE_PARALLEL_LIB_BUILD
+    "Run the library variant build steps in parallel."
+    OFF
+)
+set(PARALLEL_LIB_BUILD_LEVELS
+    "1" CACHE STRING
+    "If ENABLE_PARALLEL_LIB_BUILD is ON, this number of processes will be assigned to each variant built."
+)
+if(NOT CMAKE_GENERATOR MATCHES "Ninja")
+    if (ENABLE_PARALLEL_LIB_CONFIG OR ENABLE_PARALLEL_LIB_BUILD)
+        message(WARNING "Library build parallelization should only be enabled with the Ninja generator.")
+    endif()
+endif()
 
 # If a compiler launcher such as ccache has been set, it should be
 # passed down to each subproject build.
@@ -63,8 +81,13 @@ endforeach()
 find_package(Python3 REQUIRED COMPONENTS Interpreter) # needed by fetch_*.cmake
 
 include(ExternalProject)
-include(${TOOLCHAIN_SOURCE_DIR}/cmake/fetch_newlib.cmake)
-list(APPEND passthrough_dirs "-DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}")
+if(C_LIBRARY STREQUAL picolibc)
+    include(${TOOLCHAIN_SOURCE_DIR}/cmake/fetch_picolibc.cmake)
+    list(APPEND passthrough_dirs "-DFETCHCONTENT_SOURCE_DIR_PICOLIBC=${FETCHCONTENT_SOURCE_DIR_PICOLIBC}")
+elseif(C_LIBRARY MATCHES "^newlib")
+    include(${TOOLCHAIN_SOURCE_DIR}/cmake/fetch_newlib.cmake)
+    list(APPEND passthrough_dirs "-DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}")
+endif()
 
 # Target for any dependencies to build the runtimes project.
 add_custom_target(runtimes-depends)
