@@ -1,0 +1,5 @@
+RISC-V Toolchain for Embedded ${toolchain_VERSION}
+
+Sources:
+* riscv-toolchain: https://github.com/Laur59/RTfE (commit ${toolchain_COMMIT})
+* ${LLVM_TOOLCHAIN_C_LIBRARY}: ${LLVM_TOOLCHAIN_C_LIBRARY_URL} (commit ${LLVM_TOOLCHAIN_C_LIBRARY_COMMIT})
