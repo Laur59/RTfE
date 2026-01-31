@@ -44,7 +44,7 @@ if(VARIANT_JSON)
         string(JSON json_val_type TYPE ${json_args} ${json_param})
         set(${json_param}_def ${json_val})
     endforeach()
-    set(ENABLE_CXX_LIBS_def OFF)
+    set(ENABLE_CXX_LIBS_def ON)
 else()
     message(FATAL_ERROR "No JSON file provided!")
 endif()
@@ -66,7 +66,7 @@ endif()
 set(LIBRARY_BUILD_TYPE ${LIBRARY_BUILD_TYPE_def} CACHE STRING "Build type to use in library builds.")
 set_property(CACHE LIBRARY_BUILD_TYPE PROPERTY STRINGS ${SUPPORTED_LIBRARY_BUILD_TYPES})
 
-set(ENABLE_CXX_LIBS ${ENABLE_CXX_LIBS_def} CACHE BOOL "Build CXX libs")
+set(ENABLE_CXX_LIBS ON CACHE BOOL "Build CXX libs")
 set(LLVM_BINARY_DIR "" CACHE PATH "Path to LLVM toolchain root to build libraries with")
 
 set(PROJECT_PREFIX "subproj" CACHE STRING "Directory to build subprojects in.")
@@ -91,7 +91,7 @@ endif()
 set(target_triple "${TARGET_ARCH}-unknown-elf")
 set(cpu_family riscv)
 
-set(compile_arch_flags "${COMPILE_FLAGS} --sysroot ${TEMP_LIB_DIR}")
+set(compile_arch_flags "${COMPILE_FLAGS} --sysroot ${TEMP_LIB_DIR} -I${TEMP_LIB_DIR}/include")
 # Compiling the libraries benefits from some extra optimization
 # flags, and requires a sysroot or include folder for LLVM libc build.
 set(lib_compile_flags "${compile_arch_flags} -ffunction-sections -fdata-sections -fno-ident")
@@ -164,6 +164,7 @@ ExternalProject_Add(
     CMAKE_ARGS
     ${compiler_rt_common_flags}
     ${compiler_launcher_cmake_args}
+    -DCOMPILER_RT_BUILD_BUILTINS=ON
     -DCOMPILER_RT_BUILD_PROFILE=OFF
     STEP_TARGETS configure build install
     USES_TERMINAL_CONFIGURE TRUE
