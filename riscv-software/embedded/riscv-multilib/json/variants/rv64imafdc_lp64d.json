@@ -2,6 +2,8 @@
     "args": {
         "common": {
             "TARGET_ARCH": "riscv64",
+            "ISA": "rv64imafdc",
+            "ABI": "lp64d",
             "VARIANT": "rv64imafdc",
             "COMPILE_FLAGS": "-march=rv64imafdc -mabi=lp64d -mcmodel=medany",
             "ENABLE_EXCEPTIONS": "OFF",

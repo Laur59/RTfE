@@ -2,6 +2,8 @@
     "args": {
         "common": {
             "TARGET_ARCH": "riscv32",
+            "ISA": "rv32im",
+            "ABI": "ilp32",
             "VARIANT": "rv32im",
             "COMPILE_FLAGS": "-march=rv32im -mabi=ilp32",
             "ENABLE_EXCEPTIONS": "OFF",
