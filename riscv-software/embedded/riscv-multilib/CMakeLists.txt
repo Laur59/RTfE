@@ -186,16 +186,3 @@ foreach(lib_idx RANGE ${lib_count_dec})
     endif()
 
 endforeach()
-
-# Configure the template file with multilib flags from JSON
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/multilib.yaml.in
-    ${CMAKE_CURRENT_BINARY_DIR}/multilib/multilib.yaml
-    @ONLY
-)
-
-# Install the generated multilib.yaml file
-# install(
-#     FILES ${CMAKE_CURRENT_BINARY_DIR}/multilib/multilib.yaml
-#     DESTINATION .
-# )
