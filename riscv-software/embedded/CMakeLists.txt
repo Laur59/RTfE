@@ -339,38 +339,38 @@ llvm_install_symlink(LLVM llvm-strip llvm-objcopy ALWAYS_GENERATE)
 # Use add_custom_target instead of add_custom_command so that the target
 # is always considered out-of-date, ensuring that VERSION.txt will be
 # updated when the git revision changes.
-# add_custom_target(
-#     version_txt
-#     COMMAND
-#     "${CMAKE_COMMAND}"
-#     -DArmToolchainForEmbedded_VERSION=${ArmToolchainForEmbedded_VERSION}
-#     -DArmToolchainForEmbedded_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-#     -Dllvmproject_src_dir=${llvmproject_src_dir}
-#     # at most one of picolibc and newlib options is needed, but easiest to
-#     # specify both definitions
-#     -Dpicolibc_SOURCE_DIR=${picolibc_SOURCE_DIR}
-#     -Dpicolibc_URL=${picolibc_URL}
-#     -Dnewlib_SOURCE_DIR=${newlib_SOURCE_DIR}
-#     -Dnewlib_URL=${newlib_URL}
-#     # but we do tell the script which library we're actually using
-#     -DLLVM_TOOLCHAIN_C_LIBRARY=${LLVM_TOOLCHAIN_C_LIBRARY}
-#     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
-#     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
-# )
-# if(NOT (LLVM_TOOLCHAIN_C_LIBRARY STREQUAL newlib))
-#     install(
-#         FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
-#         DESTINATION .
-#         RENAME VERSION_${LLVM_TOOLCHAIN_C_LIBRARY}.txt
-#         COMPONENT llvm-toolchain-third-party-licenses
-#     )
-# else()
-#     install(
-#         FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
-#         DESTINATION .
-#         COMPONENT llvm-toolchain-third-party-licenses
-#     )
-# endif()
+add_custom_target(
+    version_txt
+    COMMAND
+    "${CMAKE_COMMAND}"
+    -DRiscvToolchainForEmbedded_VERSION=${RiscvToolchainForEmbedded_VERSION}
+    -DRiscvToolchainForEmbedded_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+    -Dllvmproject_src_dir=${llvmproject_src_dir}
+    # at most one of picolibc and newlib options is needed, but easiest to
+    # specify both definitions
+    -Dpicolibc_SOURCE_DIR=${picolibc_SOURCE_DIR}
+    -Dpicolibc_URL=${picolibc_URL}
+    -Dnewlib_SOURCE_DIR=${newlib_SOURCE_DIR}
+    -Dnewlib_URL=${newlib_URL}
+    # but we do tell the script which library we're actually using
+    -DLLVM_TOOLCHAIN_C_LIBRARY=${LLVM_TOOLCHAIN_C_LIBRARY}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
+)
+if(NOT (LLVM_TOOLCHAIN_C_LIBRARY STREQUAL newlib))
+    install(
+        FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
+        DESTINATION .
+        RENAME VERSION_${LLVM_TOOLCHAIN_C_LIBRARY}.txt
+        COMPONENT llvm-toolchain-third-party-licenses
+    )
+else()
+    install(
+        FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
+        DESTINATION .
+        COMPONENT llvm-toolchain-third-party-licenses
+    )
+endif()
 
 
 # Groups all the targets that comprise the toolchain.
@@ -387,6 +387,7 @@ add_dependencies(
 add_dependencies(
     llvm-toolchain
     llvm-toolchain-runtimes
+    version_txt
 )
 
 # Set LLVM_DEFAULT_EXTERNAL_LIT to the directory of clang
