@@ -571,6 +571,7 @@ Bug Fixes in This Version
 - Fixed a crash when parsing malformed #pragma clang loop vectorize_width(4,8,16)
   by diagnosing invalid comma-separated argument lists. (#GH166325)
 - Clang now treats enumeration constants of fixed-underlying enums as the enumerated type. (#GH172118)
+- Fixed a failed assertion in the preprocessor when ``__has_embed`` parameters are missing parentheses. (#GH175088)
 
 Bug Fixes to Compiler Builtins
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -654,6 +655,7 @@ Bug Fixes to C++ Support
 - Fixed a crash when parsing the ``enable_if`` attribute on C function declarations with identifier-list parameters. (#GH173826)
 - Fixed an assertion failure triggered by nested lambdas during capture handling. (#GH172814)
 - Fixed an assertion failure in vector conversions involving instantiation-dependent template expressions. (#GH173347)
+- Fixed an issue where recursive instantiation could lead to escape of SFINAE errors. (#GH179118)
 - Fixed an assertion failure in floating conversion narrowing caused by C++ constant expression checks in C23 mode. (#GH173847)
 
 Bug Fixes to AST Handling
@@ -785,6 +787,13 @@ CUDA Support
 
 - Support calling `consteval` function between different target.
 
+PowerPC Support
+^^^^^^^^^^^^^^^
+
+- Prototyped Dense Math Facility builtins.
+- Prototyped initial support for AMO load builtins.
+- Add support for ``-fpatchable-function-entry`` on PPC64LE.
+
 AIX Support
 ^^^^^^^^^^^
 
@@ -902,6 +911,11 @@ Crash and bug fixes
 - The ``core.builtin.BuiltinFunctions`` checker crashed when passing
   ``_BitInt(N)`` or ``__int128_t`` to ``__builtin_add_overflow`` or similar
   checked arithmetic builtin functions. (#GH173795)
+- Fixed a crash introduced in clang-20 when analyzing some "swap" functions.
+  (#GH178797)
+- Fixed a crash introduced in clang-20 in the ``unix.Malloc`` checker when
+  analyzing functions that had both of the ``ownership_returns`` and
+  ``ownership_takes`` attributes. (#GH183344)
 
 Improvements
 ^^^^^^^^^^^^
