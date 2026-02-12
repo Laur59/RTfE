@@ -9,7 +9,7 @@
     "newlib": {
       "url": "https://sourceware.org/git/newlib-cygwin.git",
       "tagType": "tag",
-      "tag": "newlib-4.5.0"
+      "tag": "newlib-4.6.0"
     }
   }
 }
