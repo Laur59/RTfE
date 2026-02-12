@@ -186,7 +186,8 @@ private:
       next();
 
     for (bool SeenTernaryOperator = false, MaybeAngles = true; CurrentToken;) {
-      const bool InExpr = Contexts[Contexts.size() - 2].IsExpression;
+      const auto &ParentContext = Contexts[Contexts.size() - 2];
+      const bool InExpr = ParentContext.IsExpression;
       if (CurrentToken->is(tok::greater)) {
         const auto *Next = CurrentToken->Next;
         if (CurrentToken->isNot(TT_TemplateCloser)) {
@@ -208,6 +209,10 @@ private:
           }
           if (!MaybeAngles)
             return false;
+          if (ParentContext.InStaticAssertFirstArgument && Next &&
+              Next->isOneOf(tok::minus, tok::identifier)) {
+            return false;
+          }
         }
         Left->MatchingParen = CurrentToken;
         CurrentToken->MatchingParen = Left;
@@ -2921,7 +2926,9 @@ private:
     if (!AfterRParen->Next)
       return false;
 
-    if (AfterRParen->is(tok::l_brace) &&
+    // A pair of parentheses before an l_brace in C starts a compound literal
+    // and is not a cast.
+    if (Style.Language != FormatStyle::LK_C && AfterRParen->is(tok::l_brace) &&
         AfterRParen->getBlockKind() == BK_BracedInit) {
       return true;
     }
