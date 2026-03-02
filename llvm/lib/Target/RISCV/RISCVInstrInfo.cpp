@@ -42,7 +42,6 @@ using namespace llvm;
 #include "RISCVGenCompressInstEmitter.inc"
 
 #define GET_INSTRINFO_CTOR_DTOR
-#define GET_INSTRINFO_NAMED_OPS
 #include "RISCVGenInstrInfo.inc"
 
 #define DEBUG_TYPE "riscv-instr-info"
@@ -542,8 +541,8 @@ void RISCVInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
       }
 
       if (STI.hasStdExtP()) {
-        // On RV32P, `addd` is a GPR Pair Add
-        BuildMI(MBB, MBBI, DL, get(RISCV::ADDD), DstReg)
+        // On RV32P, `padd.dw` is a GPR Pair Add
+        BuildMI(MBB, MBBI, DL, get(RISCV::PADD_DW), DstReg)
             .addReg(SrcReg, KillFlag | getRenamableRegState(RenamableSrc))
             .addReg(RISCV::X0_Pair);
         return;
@@ -1995,16 +1994,13 @@ unsigned RISCVInstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
                               *MF.getTarget().getMCAsmInfo());
   }
 
-  if (!MI.memoperands_empty()) {
-    MachineMemOperand *MMO = *(MI.memoperands_begin());
-    if (STI.hasStdExtZihintntl() && MMO->isNonTemporal()) {
-      if (STI.hasStdExtZca()) {
-        if (isCompressibleInst(MI, STI))
-          return 4; // c.ntl.all + c.load/c.store
-        return 6;   // c.ntl.all + load/store
-      }
-      return 8; // ntl.all + load/store
+  if (requiresNTLHint(MI)) {
+    if (STI.hasStdExtZca()) {
+      if (isCompressibleInst(MI, STI))
+        return 4; // c.ntl.all + c.load/c.store
+      return 6;   // c.ntl.all + load/store
     }
+    return 8; // ntl.all + load/store
   }
 
   if (Opcode == TargetOpcode::BUNDLE)
@@ -2376,8 +2372,9 @@ bool RISCVInstrInfo::areRVVInstsReassociable(const MachineInstr &Root,
   }
 
   // Rounding modes
-  if (RISCVII::hasRoundModeOp(TSFlags) &&
-      !checkImmOperand(RISCVII::getVLOpNum(Desc) - 1))
+  if (int Idx = RISCVII::getFRMOpNum(Desc); Idx >= 0 && !checkImmOperand(Idx))
+    return false;
+  if (int Idx = RISCVII::getVXRMOpNum(Desc); Idx >= 0 && !checkImmOperand(Idx))
     return false;
 
   return true;
@@ -5325,4 +5322,15 @@ bool RISCVInstrInfo::isVRegCopy(const MachineInstr *MI, unsigned LMul) const {
   auto [RCLMul, RCFractional] =
       RISCVVType::decodeVLMUL(RISCVRI::getLMul(RC->TSFlags));
   return (!RCFractional && LMul == RCLMul) || (RCFractional && LMul == 1);
+}
+
+bool RISCVInstrInfo::requiresNTLHint(const MachineInstr &MI) const {
+  if (MI.memoperands_empty())
+    return false;
+
+  MachineMemOperand *MMO = *(MI.memoperands_begin());
+  if (!MMO->isNonTemporal())
+    return false;
+
+  return true;
 }
