@@ -1,0 +1,53 @@
+From a742b2d5c5f94ed71458b1f7144e451af597a45b Mon Sep 17 00:00:00 2001
+From: Laurent von Allmen <laurent@vonallmen.ch>
+Date: Fri, 07 Mar 2026 00:00:00 +0000
+Subject: Enable libcxx builds
+
+Modifications to build config and linker script required to enable
+libc++ builds.
+
+Ported from ATfE patch by Simi Pallipurath <simi.pallipurath@arm.com>.
+---
+ meson.build    | 12 ++++++++++++
+ picolibc.ld.in |  3 +++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/meson.build b/meson.build
+index bec04a067..176f3a4d2 100644
+--- a/meson.build
++++ b/meson.build
+@@ -1497,6 +1497,18 @@ NEWLIB_MAJOR_VERSION=4
+ NEWLIB_MINOR_VERSION=3
+ NEWLIB_PATCHLEVEL_VERSION=0
+
++conf_data.set('_GNU_SOURCE', '',
++        description: '''Enable GNU functions like strtof_l.
++It's necessary to set this globally because inline functions in
++libc++ headers call the GNU functions.'''
++)
++
++conf_data.set('_PICOLIBC_CTYPE_SMALL', '0',
++        description: '''Disable picolibc's small ctype implementation.
++libc++ expects newlib-style ctype tables, and also expects support for locales
++and extended character sets, so picolibc's small ctype is not compatible with it'''
++)
++
+ conf_data.set('__HAVE_CC_INHIBIT_LOOP_TO_LIBCALL',
+ 	      cc.has_argument('-fno-tree-loop-distribute-patterns'),
+ 	      description: 'Compiler flag to prevent detecting memcpy/memset patterns')
+diff --git a/picolibc.ld.in b/picolibc.ld.in
+index 7c22c360e..9dbc0d516 100644
+--- a/picolibc.ld.in
++++ b/picolibc.ld.in
+@@ -70,6 +70,9 @@ SECTIONS
+ 		*(.literal.startup .text.startup .literal.startup.* .text.startup.*)
+ 		*(SORT(.text.sorted.*))
+ 		*(.literal .text .literal.* .text.* .opd .opd.* .branch_lt .branch_lt.* @EXTRA_TEXT_SECTIONS@)
++		PROVIDE (__start___lcxx_override = .);
++		*(__lcxx_override)
++		PROVIDE (__stop___lcxx_override = .);
+ 		*(.gnu.linkonce.t.*)
+ 		KEEP (*(.fini .fini.*))
+ 		@PREFIX@__text_end = .;
+--
+2.43.0

@@ -329,10 +329,10 @@ include(ProcessorCount)
 # If you want to stop cmake updating the repos then run
 # cmake . -DFETCHCONTENT_FULLY_DISCONNECTED=ON
 if(LLVM_TOOLCHAIN_ENABLE_PICOLIBC)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fetch_picolibc.cmake)
+    include(fetch_picolibc)
 endif()
 if(LLVM_TOOLCHAIN_ENABLE_NEWLIB OR LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fetch_newlib.cmake)
+    include(fetch_newlib)
 endif()
 
 ##################################################################################################

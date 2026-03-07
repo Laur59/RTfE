@@ -31,7 +31,7 @@ cmake_path(SET llvmproject_src_dir NORMALIZE "${TOOLCHAIN_SOURCE_DIR}/../..")
 set(MULTILIB_JSON "" CACHE STRING "JSON file to load library definitions from.")
 set(ENABLE_VARIANTS "all" CACHE STRING "Semicolon separated list of variants to build, or \"all\". Must match entries in the json.")
 set(C_LIBRARY "newlib" CACHE STRING "Which C library to use.")
-set_property(CACHE C_LIBRARY PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
+set_property(CACHE C_LIBRARY PROPERTY STRINGS picolibc newlib newlib-nano llvmlibc)
 set(PROJECT_PREFIX "${CMAKE_BINARY_DIR}/lib-builds" CACHE STRING "Directory to build subprojects in.")
 option(
     NUMERICAL_BUILD_NAMES
@@ -126,8 +126,9 @@ if(ENABLE_PARALLEL_LIB_CONFIG OR ENABLE_PARALLEL_LIB_BUILD)
         cxxlibs-configure
         cxxlibs-build
     )
+    list(LENGTH subtargets subtarget_count)
     set(subtarget_deps none ${subtargets})
-    list(REMOVE_AT subtarget_deps 6)
+    list(REMOVE_AT subtarget_deps ${subtarget_count})
 
     foreach(subtarget subtarget_dep IN ZIP_LISTS subtargets subtarget_deps)
         add_custom_target(${subtarget}-all)
@@ -194,6 +195,7 @@ foreach(lib_idx RANGE ${lib_count_dec})
                 ${passthrough_dirs}
                 ${additional_cmake_args}
                 -DVARIANT_JSON=${variant_json_file}
+                -DC_LIBRARY=${C_LIBRARY}
                 -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
                 -DPROJECT_PREFIX=${PROJECT_PREFIX}
                 STEP_TARGETS build install

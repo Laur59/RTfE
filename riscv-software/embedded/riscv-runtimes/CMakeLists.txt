@@ -29,7 +29,7 @@ cmake_path(SET llvmproject_src_dir NORMALIZE "${TOOLCHAIN_SOURCE_DIR}/../..")
 # CMake arguments are loaded from the JSON file depending on which C
 # library is used, so this must be set before the JSON is processed.
 set(C_LIBRARY "newlib" CACHE STRING "Which C library to use.")
-set_property(CACHE C_LIBRARY PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
+set_property(CACHE C_LIBRARY PROPERTY STRINGS picolibc newlib newlib-nano llvmlibc)
 
 set(VARIANT_JSON "" CACHE STRING "JSON file to load args from.")
 if(VARIANT_JSON)
@@ -66,13 +66,14 @@ endif()
 set(LIBRARY_BUILD_TYPE ${LIBRARY_BUILD_TYPE_def} CACHE STRING "Build type to use in library builds.")
 set_property(CACHE LIBRARY_BUILD_TYPE PROPERTY STRINGS ${SUPPORTED_LIBRARY_BUILD_TYPES})
 
-set(ENABLE_CXX_LIBS ON CACHE BOOL "Build CXX libs")
+set(ENABLE_CXX_LIBS ${ENABLE_CXX_LIBS_def} CACHE BOOL "Build CXX libs")
 # set(ENABLE_LIBC_TESTS ${ENABLE_LIBC_TESTS_def} CACHE BOOL "Enable libc tests (picolibc, newlib, newlib-nano or llvm-libc).")
 # set(ENABLE_COMPILER_RT_TESTS ${ENABLE_COMPILER_RT_TESTS_def} CACHE BOOL "Enable compiler-rt tests.")
 # set(ENABLE_LIBCXX_TESTS ${ENABLE_LIBCXX_TESTS_def} CACHE BOOL "Enable libcxx tests.")
 set(LLVM_BINARY_DIR "" CACHE PATH "Path to LLVM toolchain root to build libraries with")
 
 set(PROJECT_PREFIX "subproj" CACHE STRING "Directory to build subprojects in.")
+set(VARIANT_BUILD_ID "${VARIANT}" CACHE STRING "Name to use to identify build directories." )
 
 # Temporary location to collect the libraries as they are built.
 set(TEMP_LIB_DIR "${CMAKE_CURRENT_BINARY_DIR}/tmp_install")
@@ -155,12 +156,6 @@ string(REPLACE "-unknown-" "-unknown-unknown-" normalized_target_triple ${target
 #     )
 # endif()
 
-if(NOT C_LIBRARY STREQUAL "llvmlibc")
-    set(compiler_rt_cmake_args
-    -DCOMPILER_RT_EXCLUDE_LIBC_PROVIDED_ARM_AEABI_BUILTINS=ON
-  )
-endif()
-
 # Common compiler_rt flags used by both builtins and profile builds
 set(
     compiler_rt_common_flags
@@ -200,7 +195,6 @@ ExternalProject_Add(
     CMAKE_ARGS
     ${compiler_rt_common_flags}
     ${compiler_launcher_cmake_args}
-    -DCOMPILER_RT_BUILD_BUILTINS=ON
     -DCOMPILER_RT_BUILD_PROFILE=OFF
     STEP_TARGETS configure build install
     USES_TERMINAL_CONFIGURE TRUE
@@ -252,8 +246,8 @@ ExternalProject_Add(
 ###############################################################################
 # picolibc
 ###############################################################################
-if(0)
-# if(C_LIBRARY STREQUAL picolibc)
+
+if(C_LIBRARY STREQUAL picolibc)
     include(${TOOLCHAIN_SOURCE_DIR}/cmake/fetch_picolibc.cmake)
     include(${CMAKE_CURRENT_SOURCE_DIR}/to_meson_list.cmake)
 
@@ -286,11 +280,6 @@ if(0)
     to_meson_list("${picolibc_flags}" picolibc_meson_flags)
     to_meson_list("${picolibcpp_flags}" picolibcpp_meson_flags)
 
-#     if(ENABLE_LIBC_TESTS)
-#         set(picolibc_test_executor_bin ${CMAKE_CURRENT_SOURCE_DIR}/test-support/picolibc-test-wrapper.py)
-#         to_meson_list("${test_executor_params}" meson_test_executor_params)
-#     endif()
-
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/meson-cross-build.txt.in ${CMAKE_CURRENT_BINARY_DIR}/meson-cross-build.txt @ONLY)
 
     ExternalProject_Add(
@@ -311,8 +300,7 @@ if(0)
             -Dmultilib=false
             -Ddebug=false
             -Dtests-enable-stack-protector=false
-            -Dtest-long-double=${enable_picolibc_long_double_test}
-#             -Dtest-machine=${TEST_EXECUTOR}
+            -Dtest-long-double=false
             -Dtests=false
             --prefix <INSTALL_DIR>
             --cross-file ${CMAKE_CURRENT_BINARY_DIR}/meson-cross-build.txt
@@ -437,29 +425,12 @@ endif()
 
 if(C_LIBRARY MATCHES "^newlib")
     if(C_LIBRARY STREQUAL newlib-nano)
-        set(newlib_optim_flags "-Oz")
-            # Taken from https://gitlab.arm.com/tooling/gnu-devtools-for-arm/-/blob/9e3db8c042400c9c59686dec8eda2e8c44e5fb5d/build-baremetal-toolchain.sh#L582
-            set(newlib_flags
-                --disable-newlib-supplied-syscalls
-                --disable-nls
-                --enable-lite-exit
-                --disable-multilib
-                --enable-newlib-retargetable-locking
-                --enable-newlib-nano-malloc
-                --disable-newlib-unbuf-stream-opt
-                --enable-newlib-reent-small
-                --disable-newlib-fseek-optimization
-                --enable-newlib-nano-formatted-io
-                --disable-newlib-fvwrite-in-streamio
-                --disable-newlib-wide-orient
-                --enable-lite-exit
-                --enable-newlib-global-atexit)
     else()
-#         if(LIBRARY_BUILD_TYPE STREQUAL minsizerelease)
-#             set(newlib_optim_flags "-Os")
-#         elseif((LIBRARY_BUILD_TYPE STREQUAL release) OR (LIBRARY_BUILD_TYPE STREQUAL releasewithdebuginfo))
+        if(LIBRARY_BUILD_TYPE STREQUAL minsizerelease)
             set(newlib_optim_flags "-O2")
-#         endif()
+        elseif((LIBRARY_BUILD_TYPE STREQUAL release) OR (LIBRARY_BUILD_TYPE STREQUAL releasewithdebuginfo))
+            set(newlib_optim_flags "-O2")
+        endif()
         set(newlib_flags
             --enable-newlib-io-long-long
             --enable-newlib-register-fini
@@ -496,9 +467,9 @@ if(C_LIBRARY MATCHES "^newlib")
     ExternalProject_Add(
         ${C_LIBRARY}
         STAMP_DIR ${PROJECT_PREFIX}/${C_LIBRARY}/${MULTILIB_DIR_def}/stamp
-        BINARY_DIR ${PROJECT_PREFIX}/n${C_LIBRARY}/${MULTILIB_DIR_def}/build
+        BINARY_DIR ${PROJECT_PREFIX}/${C_LIBRARY}/${MULTILIB_DIR_def}/build
         DOWNLOAD_DIR ${PROJECT_PREFIX}/${C_LIBRARY}/${MULTILIB_DIR_def}/dl
-        TMP_DIR ${PROJECT_PREFIX}/${C_LIBRARY}${MULTILIB_DIR_def}/tmp
+        TMP_DIR ${PROJECT_PREFIX}/${C_LIBRARY}/${MULTILIB_DIR_def}/tmp
         SOURCE_DIR ${newlib_SOURCE_DIR}
         INSTALL_DIR ${TEMP_LIB_DIR}
         CONFIGURE_COMMAND
@@ -530,8 +501,8 @@ endif()
 ###############################################################################
 # llvmlibc
 ###############################################################################
-if(0)
-# if(C_LIBRARY STREQUAL llvmlibc)
+
+if(C_LIBRARY STREQUAL llvmlibc)
 #     set(test_cmd "${lit_test_executor} @BINARY@")
     set(lib_compile_flags "${lib_compile_flags} -Wno-error=atomic-alignment")
 
@@ -631,10 +602,6 @@ if(0)
     )
 
 #     if(ENABLE_LIBC_TESTS)
-#         if(NOT(TEST_EXECUTOR STREQUAL qemu))
-#             message(FATAL_ERROR "LLVM-libc tests are only able to run on QEMU.")
-#         endif()
-#
 #         add_custom_target(check-llvmlibc)
 #         add_dependencies(check-all check-llvmlibc)
 #
@@ -685,33 +652,6 @@ if(ENABLE_CXX_LIBS)
             -DLIBCXX_ENABLE_RTTI=${ENABLE_RTTI}
             -DRUNTIMES_USE_LIBC=picolibc
         )
-#         if(ENABLE_LIBCXX_TESTS)
-#             # Generate xfails for libxx.
-#             set(libcxx_lit_xfails_path "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT}_libcxx_lit_xfails.txt")
-#             set(libcxx_lit_args "@${libcxx_lit_xfails_path} ${LLVM_LIT_ARGS}"
-#             )
-#             add_custom_target(
-#                 libcxx-xfail-lit-args
-#                 COMMAND ${Python3_EXECUTABLE}
-#                     ${CMAKE_CURRENT_SOURCE_DIR}/test-support/xfails.py
-#                     --variant ${VARIANT}
-#                     --project libcxx
-#                     --libc ${C_LIBRARY}
-#                     --output-arg ${libcxx_lit_xfails_path}
-#             )
-#             set(cxxlibs_test_cmake_options
-#                 -DLIBCXX_TEST_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/test-support/llvm-libc++-picolibc.cfg.in
-#                 -DLIBCXX_TEST_PARAMS=executor=${lit_test_executor}
-#                 -DLIBCXXABI_TEST_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/test-support/llvm-libc++abi-picolibc.cfg.in
-#                 -DLIBCXXABI_TEST_PARAMS=executor=${lit_test_executor}
-#                 -DLIBUNWIND_TEST_CONFIG=${CMAKE_CURRENT_SOURCE_DIR}/test-support/llvm-libunwind-picolibc.cfg.in
-#                 -DLIBUNWIND_TEST_PARAMS=executor=${lit_test_executor}
-#                 -DRUNTIME_TEST_ARCH_FLAGS=${compile_arch_flags}
-#                 -DRUNTIME_TEST_LINK_FLAGS=${test_link_flags}
-#                 -DLLVM_LIT_ARGS=${libcxx_lit_args}
-#                 -DLLVM_EXTERNAL_LIT=${external_lit_path}
-#             )
-#         endif()
     elseif(C_LIBRARY STREQUAL llvmlibc)
         set(cxxlibs_extra_cmake_options
             -DLIBCXXABI_ENABLE_THREADS=OFF
@@ -744,21 +684,21 @@ if(ENABLE_CXX_LIBS)
             -DRUNTIMES_USE_LIBC=newlib
         )
 
-#         if(C_LIBRARY STREQUAL newlib-nano)
-#             set(lib_compile_flags "${lib_compile_flags} -Oz")
-#         endif()
+        if(C_LIBRARY STREQUAL newlib-nano)
+            set(lib_compile_flags "${lib_compile_flags} -Oz")
+        endif()
 
-#         if(C_LIBRARY STREQUAL newlib-nano)
-#             set(cxxlibs_extra_cmake_options
-#                 ${cxxlibs_extra_cmake_options}
-#                 -DLIBCXX_ENABLE_WIDE_CHARACTERS=OFF
-#             )
-#         else()
+        if(C_LIBRARY STREQUAL newlib-nano)
+            set(cxxlibs_extra_cmake_options
+                ${cxxlibs_extra_cmake_options}
+                -DLIBCXX_ENABLE_WIDE_CHARACTERS=OFF
+            )
+        else()
             set(cxxlibs_extra_cmake_options
                 ${cxxlibs_extra_cmake_options}
                 -DLIBCXX_ENABLE_WIDE_CHARACTERS=ON
             )
-#         endif()
+        endif()
     endif()
 
     ExternalProject_Add(
