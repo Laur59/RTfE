@@ -10,7 +10,7 @@
 #
 # Changes:
 #   - Modified for building RISC-V compiler
-#   - Support only C library newlib
+#   - By default use newlib for C library
 #   - Removed all tests
 #   - Build only on linux
 
@@ -72,6 +72,10 @@ cmake_minimum_required(VERSION 3.20)
 # Add CMake modules of project
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
+option(
+    PREBUILT_TARGET_LIBRARIES
+    "Target libraries are prebuilt so no need to build them"
+)
 set(TARGET_LIBRARIES_DIR
     "lib/clang-runtimes" CACHE STRING
     "Directory containing the target libraries."
@@ -113,12 +117,10 @@ set(PARALLEL_LIB_BUILD_LEVELS
     "If ENABLE_PARALLEL_LIB_BUILD is ON, this number of processes will be assigned to each variant built."
 )
 
-set(LLVM_TOOLCHAIN_C_LIBRARY
-    "newlib" CACHE STRING
-    "Which C library to use."
-)
-set_property(CACHE LLVM_TOOLCHAIN_C_LIBRARY
-    PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
+option(LLVM_TOOLCHAIN_ENABLE_PICOLIBC "Enable building picolibc runtime" ON)
+option(LLVM_TOOLCHAIN_ENABLE_NEWLIB "Enable building newlib runtime" OFF)
+option(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO "Enable building newlib-nano runtime" OFF)
+option(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC "Enable building LLVM libc runtime" OFF)
 
 option(
     SHORT_BUILD_PATHS
@@ -127,6 +129,50 @@ option(
     index numbers, which is shorter but less descriptive."
     OFF
 )
+
+option(
+    ENABLE_MULTILIB_HEADER_OPTIMISATION "Enable multilib header optimisation phase"
+    OFF
+)
+
+# option(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL
+#     "Make cpack build an overlay package that can be unpacked over the main toolchain to install a secondary set of libraries based on newlib or llvm-libc."
+#     ${overlay_install_default})
+
+set(LLVM_TOOLCHAIN_ENABLED_LIBCS "")
+if(LLVM_TOOLCHAIN_ENABLE_PICOLIBC)
+    list(APPEND LLVM_TOOLCHAIN_ENABLED_LIBCS picolibc)
+endif()
+if(LLVM_TOOLCHAIN_ENABLE_NEWLIB)
+    list(APPEND LLVM_TOOLCHAIN_ENABLED_LIBCS newlib)
+endif()
+if(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO)
+    list(APPEND LLVM_TOOLCHAIN_ENABLED_LIBCS newlib-nano)
+endif()
+if(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC)
+    list(APPEND LLVM_TOOLCHAIN_ENABLED_LIBCS llvmlibc)
+endif()
+
+if(NOT LLVM_TOOLCHAIN_ENABLED_LIBCS)
+    message(WARNING
+        "No C libraries are enabled. Only the compiler will be built. "
+        "Set LLVM_TOOLCHAIN_ENABLE_PICOLIBC, LLVM_TOOLCHAIN_ENABLE_NEWLIB, "
+        "LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO, "
+        "or LLVM_TOOLCHAIN_ENABLE_LLVMLIBC to ON to build runtimes.")
+endif()
+
+if(LLVM_TOOLCHAIN_ENABLED_LIBCS)
+    # The primary libc is the first entry in LLVM_TOOLCHAIN_ENABLED_LIBCS.
+    # The order is fixed by the append sequence above (picolibc, newlib,
+    # newlib-nano, llvmlibc) and is intentional: picolibc is the default
+    # for ATfE, so it should always be the primary when enabled.
+    list(GET LLVM_TOOLCHAIN_ENABLED_LIBCS 0 LLVM_TOOLCHAIN_PRIMARY_LIBC)
+endif()
+list(LENGTH LLVM_TOOLCHAIN_ENABLED_LIBCS LLVM_TOOLCHAIN_ENABLED_LIBCS_COUNT)
+set(LLVM_TOOLCHAIN_MULTI_LIB_BUILD OFF)
+if(LLVM_TOOLCHAIN_ENABLED_LIBCS_COUNT GREATER 1)
+    set(LLVM_TOOLCHAIN_MULTI_LIB_BUILD ON)
+endif()
 
 set(BUG_REPORT_URL "https://github.com/Laur59/RTfE/issues" CACHE STRING "")
 set(LLVM_DISTRIBUTION_COMPONENTS
@@ -170,7 +216,6 @@ set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE riscv64-unknown-elf CACHE STRING "")
 set(LLVM_APPEND_VC_REV OFF CACHE BOOL "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
-set(LLVM_ENABLE_ZLIB OFF CACHE BOOL "")
 set(LLVM_ENABLE_ZSTD OFF CACHE BOOL "")
 set(LLVM_ENABLE_LIBXML2 OFF CACHE BOOL "")
 set(CLANG_DEFAULT_LINKER lld CACHE STRING "")
@@ -220,10 +265,10 @@ include(ProcessorCount)
 #
 # If you want to stop cmake updating the repos then run
 # cmake . -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-if(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL picolibc)
+if(LLVM_TOOLCHAIN_ENABLE_PICOLIBC)
     include(fetch_picolibc)
 endif()
-if(LLVM_TOOLCHAIN_C_LIBRARY MATCHES "^newlib")
+if(LLVM_TOOLCHAIN_ENABLE_NEWLIB OR LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO)
     include(fetch_newlib)
 endif()
 
@@ -246,18 +291,10 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 ##################################################################################################
 
-# Generate a toolchain ID.
-# Use HOSTNAME.
-set(ID_SUFFIX "pre")
-cmake_host_system_information(RESULT builder_name QUERY HOSTNAME)
-set(builder_name ${builder_name}$ENV{USER})
-string(SHA256 builder_name_hash ${builder_name})
-string(SUBSTRING ${builder_name_hash} 0 8 builder_name_hash)
-set(RISCV_TOOLCHAIN_ID
-    "${ID_SUFFIX} (${builder_name_hash})" CACHE STRING
-    "Toolchain ID to identify product."
-)
 cmake_path(SET llvmproject_src_dir NORMALIZE "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+set(LLVM_TOOLCHAIN_LIBC_CONFIG_COMPONENTS "")
+list(APPEND LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS ${LLVM_TOOLCHAIN_LIBC_CONFIG_COMPONENTS})
+
 add_subdirectory(
     ${llvmproject_src_dir}/llvm llvm
 )
@@ -268,7 +305,7 @@ get_directory_property(LLVM_VERSION_PATCH DIRECTORY ${llvmproject_src_dir}/llvm 
 
 project(
     RiscvToolchainForEmbedded
-    VERSION ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}
+    VERSION 1.1
     DESCRIPTION "RISC-V Toolchain for Embedded"
     HOMEPAGE_URL "https://github.com/Laur59/RTfE"
 )
@@ -276,11 +313,22 @@ project(
 # Set package name for shorter archive file name
 set(SHORT_PACKAGE_NAME "RTfE")
 
+# Set directory name containing CFI ignore file
+set(TARGET_CFI_DIR
+    "lib/clang/${LLVM_VERSION_MAJOR}/share" CACHE STRING
+    "Directory containing the CFI ignore file."
+)
+
 # Set package name and version.
 if(DEFINED LLVM_TOOLCHAIN_PACKAGE_NAME)
     set(PACKAGE_NAME ${LLVM_TOOLCHAIN_PACKAGE_NAME})
 else()
     set(PACKAGE_NAME ${SHORT_PACKAGE_NAME})
+endif()
+set(CPACK_PACKAGE_NAME ${PACKAGE_NAME})
+set(PACKAGE_VERSION "${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}")
+if(DEFINED LLVM_TOOLCHAIN_VERSION_SUFFIX)
+    set(PACKAGE_VERSION "${PACKAGE_VERSION}-${LLVM_TOOLCHAIN_VERSION_SUFFIX}")
 endif()
 
 # Ensure LLVM tool symlinks are installed.
@@ -306,8 +354,7 @@ add_custom_target(
     -Dpicolibc_URL=${picolibc_URL}
     -Dnewlib_SOURCE_DIR=${newlib_SOURCE_DIR}
     -Dnewlib_URL=${newlib_URL}
-    # but we do tell the script which library we're actually using
-    -DLLVM_TOOLCHAIN_C_LIBRARY=${LLVM_TOOLCHAIN_C_LIBRARY}
+    "-DLLVM_TOOLCHAIN_ENABLED_LIBCS=\"${LLVM_TOOLCHAIN_ENABLED_LIBCS}\""
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
 )
@@ -346,8 +393,6 @@ if(LIBS_DEPEND_ON_TOOLS)
     )
 endif()
 
-set(library_subdir "")
-
 if(LIBS_USE_COMPILER_LAUNCHER)
     if(CMAKE_C_COMPILER_LAUNCHER)
         list(APPEND compiler_launcher_cmake_args "-DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}")
@@ -363,39 +408,53 @@ endif()
 # LIST_SEPARATOR option will handle switching it back.
 string(REPLACE ";" "," ENABLE_VARIANTS_PASSTHROUGH "${LLVM_TOOLCHAIN_LIBRARY_VARIANTS}")
 
-set(multilib_prefix ${CMAKE_BINARY_DIR}/multilib-builds)
+foreach(libc IN LISTS LLVM_TOOLCHAIN_ENABLED_LIBCS)
+    set(multilib_project multilib-${libc})
+    # Use a per-libc prefix to avoid subproject build dir conflicts.
+    set(multilib_prefix ${CMAKE_BINARY_DIR}/${multilib_project}-builds)
+    set(libc_install_dir ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR})
+    if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL OR NOT libc STREQUAL LLVM_TOOLCHAIN_PRIMARY_LIBC)
+        string(APPEND libc_install_dir "/${libc}")
+    endif()
 
-ExternalProject_Add(
-    multilib-${LLVM_TOOLCHAIN_C_LIBRARY}
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
-    STAMP_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-stamp
-    BINARY_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-build
-    DOWNLOAD_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-dl
-    TMP_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-tmp
-    INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}
-    DEPENDS ${lib_tool_dependencies}
-    CMAKE_ARGS
-    ${compiler_launcher_cmake_args}
-    -DC_LIBRARY=${LLVM_TOOLCHAIN_C_LIBRARY}
-    -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
-    -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
-    -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
-    -DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}
-    -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-    -DPROJECT_PREFIX=${multilib_prefix}
-    -DNUMERICAL_BUILD_NAMES=${SHORT_BUILD_PATHS}
-    USES_TERMINAL_CONFIGURE TRUE
-    USES_TERMINAL_BUILD TRUE
-    LIST_SEPARATOR ,
-    CONFIGURE_HANDLED_BY_BUILD TRUE
-    TEST_EXCLUDE_FROM_MAIN TRUE
-    STEP_TARGETS build install
-)
+    ExternalProject_Add(
+        ${multilib_project}
+        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
+        STAMP_DIR ${multilib_prefix}/multilib/stamp
+        BINARY_DIR ${multilib_prefix}/multilib/build
+        DOWNLOAD_DIR ${multilib_prefix}/multilib/dl
+        TMP_DIR ${multilib_prefix}/multilib/tmp
+        INSTALL_DIR ${libc_install_dir}
+        DEPENDS ${lib_tool_dependencies}
+        CMAKE_ARGS
+        ${compiler_launcher_cmake_args}
+        -DC_LIBRARY=${libc}
+        -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
+        -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
+        -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
+        -DENABLE_MULTILIB_HEADER_OPTIMISATION=${ENABLE_MULTILIB_HEADER_OPTIMISATION}
+        -DENABLE_PARALLEL_LIB_CONFIG=${ENABLE_PARALLEL_LIB_CONFIG}
+        -DENABLE_PARALLEL_LIB_BUILD=${ENABLE_PARALLEL_LIB_BUILD}
+        -DPARALLEL_LIB_BUILD_LEVELS=${PARALLEL_LIB_BUILD_LEVELS}
+        -DFETCHCONTENT_SOURCE_DIR_PICOLIBC=${FETCHCONTENT_SOURCE_DIR_PICOLIBC}
+        -DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}
+        -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+        -DPROJECT_PREFIX=${multilib_prefix}
+        -DNUMERICAL_BUILD_NAMES=${SHORT_BUILD_PATHS}
+        USES_TERMINAL_CONFIGURE TRUE
+        USES_TERMINAL_BUILD TRUE
+        LIST_SEPARATOR ,
+        CONFIGURE_HANDLED_BY_BUILD TRUE
+        TEST_EXCLUDE_FROM_MAIN TRUE
+        STEP_TARGETS build install
+    )
 
-add_dependencies(
-    llvm-toolchain-runtimes
-    multilib-${LLVM_TOOLCHAIN_C_LIBRARY}-install
-)
+    add_dependencies(
+        llvm-toolchain-runtimes
+        ${multilib_project}-install
+    )
+
+endforeach()
 
 install(
     DIRECTORY ${LLVM_BINARY_DIR}/${TARGET_LIBRARIES_DIR}/.
