@@ -122,11 +122,42 @@ set(PARALLEL_LIB_BUILD_LEVELS
 )
 
 set(LLVM_TOOLCHAIN_C_LIBRARY
-    "newlib" CACHE STRING
-    "Which C library to use."
+    "" CACHE STRING
+    "Deprecated legacy hook for selecting a single C library. Use LLVM_TOOLCHAIN_ENABLE_PICOLIBC, LLVM_TOOLCHAIN_ENABLE_NEWLIB, or LLVM_TOOLCHAIN_ENABLE_LLVMLIBC instead."
 )
 set_property(CACHE LLVM_TOOLCHAIN_C_LIBRARY
-    PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
+    PROPERTY STRINGS picolibc newlib newlib-nano llvmlibc)
+
+option(LLVM_TOOLCHAIN_ENABLE_PICOLIBC "Enable building picolibc runtime" ON)
+option(LLVM_TOOLCHAIN_ENABLE_NEWLIB "Enable building newlib runtime" OFF)
+option(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO "Enable building newlib-nano runtime" OFF)
+option(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC "Enable building LLVM libc runtime" OFF)
+
+if(LLVM_TOOLCHAIN_C_LIBRARY)
+    message(WARNING
+        "LLVM_TOOLCHAIN_C_LIBRARY is deprecated; set LLVM_TOOLCHAIN_ENABLE_PICOLIBC/NEWLIB/NEWLIB_NANO/LLVMLIBC instead.")
+    if(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL "picolibc")
+        set(LLVM_TOOLCHAIN_ENABLE_PICOLIBC ON CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC OFF CACHE BOOL "" FORCE)
+    elseif(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL "newlib-nano")
+        set(LLVM_TOOLCHAIN_ENABLE_PICOLIBC OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO ON CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC OFF CACHE BOOL "" FORCE)
+    elseif(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL "newlib")
+        set(LLVM_TOOLCHAIN_ENABLE_PICOLIBC OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB ON CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC OFF CACHE BOOL "" FORCE)
+    elseif(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL "llvmlibc")
+        set(LLVM_TOOLCHAIN_ENABLE_PICOLIBC OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO OFF CACHE BOOL "" FORCE)
+        set(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC ON CACHE BOOL "" FORCE)
+    endif()
+endif()
 
 option(
     SHORT_BUILD_PATHS
@@ -154,11 +185,6 @@ option(
 # option(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL
 #     "Make cpack build an overlay package that can be unpacked over the main toolchain to install a secondary set of libraries based on newlib or llvm-libc."
 #     ${overlay_install_default})
-# if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL)
-#   if(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL "picolibc")
-#     message(FATAL_ERROR "LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL is only permitted for C libraries other than the default picolibc")
-#   endif()
-# endif()
 
 set(BUG_REPORT_URL "https://github.com/Laur59/RTfE/issues" CACHE STRING "")
 set(LLVM_DISTRIBUTION_COMPONENTS
@@ -204,7 +230,6 @@ set(LLVM_TARGETS_TO_BUILD RISCV CACHE STRING "")
 set(LLVM_DEFAULT_TARGET_TRIPLE riscv64-unknown-elf CACHE STRING "")
 set(LLVM_APPEND_VC_REV OFF CACHE BOOL "")
 set(LLVM_ENABLE_TERMINFO OFF CACHE BOOL "")
-set(LLVM_ENABLE_ZLIB OFF CACHE BOOL "")
 set(LLVM_ENABLE_ZSTD OFF CACHE BOOL "")
 set(LLVM_ENABLE_LIBXML2 OFF CACHE BOOL "")
 set(CLANG_DEFAULT_LINKER lld CACHE STRING "")
@@ -254,11 +279,11 @@ include(ProcessorCount)
 #
 # If you want to stop cmake updating the repos then run
 # cmake . -DFETCHCONTENT_FULLY_DISCONNECTED=ON
-if(LLVM_TOOLCHAIN_C_LIBRARY STREQUAL picolibc)
-    include(fetch_picolibc)
+if(LLVM_TOOLCHAIN_ENABLE_PICOLIBC)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fetch_picolibc.cmake)
 endif()
-if(LLVM_TOOLCHAIN_C_LIBRARY MATCHES "^newlib")
-    include(fetch_newlib)
+if(LLVM_TOOLCHAIN_ENABLE_NEWLIB OR LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/fetch_newlib.cmake)
 endif()
 
 ##################################################################################################
@@ -335,6 +360,8 @@ llvm_install_symlink(LLVM llvm-ranlib llvm-ar ALWAYS_GENERATE)
 llvm_install_symlink(LLVM llvm-readelf llvm-readobj ALWAYS_GENERATE)
 llvm_install_symlink(LLVM llvm-strip llvm-objcopy ALWAYS_GENERATE)
 
+set(libc newlib)
+
 # Generate VERSION.txt
 # Use add_custom_target instead of add_custom_command so that the target
 # is always considered out-of-date, ensuring that VERSION.txt will be
@@ -353,7 +380,7 @@ add_custom_target(
     -Dnewlib_SOURCE_DIR=${newlib_SOURCE_DIR}
     -Dnewlib_URL=${newlib_URL}
     # but we do tell the script which library we're actually using
-    -DLLVM_TOOLCHAIN_C_LIBRARY=${LLVM_TOOLCHAIN_C_LIBRARY}
+    -DLLVM_TOOLCHAIN_C_LIBRARY=${libc}
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
 )
@@ -361,7 +388,7 @@ if(NOT (LLVM_TOOLCHAIN_C_LIBRARY STREQUAL newlib))
     install(
         FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
         DESTINATION .
-        RENAME VERSION_${LLVM_TOOLCHAIN_C_LIBRARY}.txt
+        RENAME VERSION_${libc}.txt
         COMPONENT llvm-toolchain-third-party-licenses
     )
 else()
@@ -453,19 +480,20 @@ add_dependencies(
     string(REPLACE ";" "," ENABLE_VARIANTS_PASSTHROUGH "${LLVM_TOOLCHAIN_LIBRARY_VARIANTS}")
 
     set(multilib_prefix ${CMAKE_BINARY_DIR}/multilib-builds)
+    set(multilib_project multilib-${libc})
 
     ExternalProject_Add(
-        multilib-${LLVM_TOOLCHAIN_C_LIBRARY}
+        multilib-${libc}
         SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
-        STAMP_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-stamp
-        BINARY_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-build
-        DOWNLOAD_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-dl
-        TMP_DIR ${multilib_prefix}/multilib/${LLVM_TOOLCHAIN_C_LIBRARY}-tmp
+        STAMP_DIR ${multilib_prefix}/multilib/${libc}-stamp
+        BINARY_DIR ${multilib_prefix}/multilib/${libc}-build
+        DOWNLOAD_DIR ${multilib_prefix}/multilib/${libc}-dl
+        TMP_DIR ${multilib_prefix}/multilib/${libc}-tmp
         INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}
         DEPENDS ${lib_tool_dependencies}
         CMAKE_ARGS
         ${compiler_launcher_cmake_args}
-        -DC_LIBRARY=${LLVM_TOOLCHAIN_C_LIBRARY}
+        -DC_LIBRARY=${libc}
         -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
         -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
         -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
@@ -484,7 +512,7 @@ add_dependencies(
 
     add_dependencies(
         llvm-toolchain-runtimes
-        multilib-${LLVM_TOOLCHAIN_C_LIBRARY}-install
+        multilib-${libc}-install
     )
 
 # endif()
@@ -531,7 +559,7 @@ add_dependencies(
 
 
 # add_custom_target(check-llvm-toolchain)
-# add_dependencies(check-llvm-toolchain check-${LLVM_TOOLCHAIN_C_LIBRARY})
+# add_dependencies(check-llvm-toolchain check-libc)
 # add_dependencies(check-llvm-toolchain check-compiler-rt)
 # add_subdirectory(test)
 # add_dependencies(check-llvm-toolchain check-llvm-toolchain-lit)
