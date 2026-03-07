@@ -67,6 +67,8 @@
 #   cmake . '-DLLVM_TOOLCHAIN_LIBRARY_VARIANTS=rv32i_ilp32;rv64imac_lp64'
 
 
+# CONFIGURE_HANDLED_BY_BUILD was introduced in CMake 3.20 and it
+# greatly speeds up incremental builds.
 cmake_minimum_required(VERSION 3.20)
 
 # Add CMake modules of project
@@ -360,8 +362,6 @@ llvm_install_symlink(LLVM llvm-ranlib llvm-ar ALWAYS_GENERATE)
 llvm_install_symlink(LLVM llvm-readelf llvm-readobj ALWAYS_GENERATE)
 llvm_install_symlink(LLVM llvm-strip llvm-objcopy ALWAYS_GENERATE)
 
-set(libc newlib)
-
 # Generate VERSION.txt
 # Use add_custom_target instead of add_custom_command so that the target
 # is always considered out-of-date, ensuring that VERSION.txt will be
@@ -379,25 +379,25 @@ add_custom_target(
     -Dpicolibc_URL=${picolibc_URL}
     -Dnewlib_SOURCE_DIR=${newlib_SOURCE_DIR}
     -Dnewlib_URL=${newlib_URL}
-    # but we do tell the script which library we're actually using
-    -DLLVM_TOOLCHAIN_C_LIBRARY=${libc}
+    "-DLLVM_TOOLCHAIN_ENABLED_LIBCS=\"${LLVM_TOOLCHAIN_ENABLED_LIBCS}\""
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
 )
-if(NOT (LLVM_TOOLCHAIN_C_LIBRARY STREQUAL newlib))
+# if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL)
+#     list(GET LLVM_TOOLCHAIN_ENABLED_LIBCS 0 _version_libc_name)
+#     install(
+#         FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
+#         DESTINATION .
+#         RENAME VERSION_${_version_libc_name}.txt
+#         COMPONENT llvm-toolchain-third-party-licenses
+#     )
+# else()
     install(
         FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
         DESTINATION .
-        RENAME VERSION_${libc}.txt
         COMPONENT llvm-toolchain-third-party-licenses
     )
-else()
-    install(
-        FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
-        DESTINATION .
-        COMPONENT llvm-toolchain-third-party-licenses
-    )
-endif()
+# endif()
 
 
 # Groups all the targets that comprise the toolchain.
@@ -445,24 +445,9 @@ add_dependencies(
 
 #     add_dependencies(
 #         check-llvm-toolchain-runtimes
-#         check-${LLVM_TOOLCHAIN_C_LIBRARY}
-#         check-compiler-rt
-#         check-cxx
-#         check-cxxabi
-#         check-unwind
+#         check-libc
+#         ${LLVM_TOOLCHAIN_SHARED_CHECK_TARGETS}
 #     )
-
-#     if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL)
-#         # If we're building a non-default libc with the intention of
-#         # installing it as an overlay on the main package archive, then
-#         # all of its includes, libraries and multilib.yaml go in a
-#         # subdirectory of lib/clang-runtimes. Configuration files in the
-#         # bin directory will make it easy to reset the sysroot to point at
-#         # that subdir.
-#         set(library_subdir "/${LLVM_TOOLCHAIN_C_LIBRARY}")
-#     else()
-        set(library_subdir "")
-#     endif()
 
     if(LIBS_USE_COMPILER_LAUNCHER)
         if(CMAKE_C_COMPILER_LAUNCHER)
@@ -479,41 +464,45 @@ add_dependencies(
     # LIST_SEPARATOR option will handle switching it back.
     string(REPLACE ";" "," ENABLE_VARIANTS_PASSTHROUGH "${LLVM_TOOLCHAIN_LIBRARY_VARIANTS}")
 
-    set(multilib_prefix ${CMAKE_BINARY_DIR}/multilib-builds)
-    set(multilib_project multilib-${libc})
+set(libc newlib)
 
-    ExternalProject_Add(
-        multilib-${libc}
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
-        STAMP_DIR ${multilib_prefix}/multilib/${libc}-stamp
-        BINARY_DIR ${multilib_prefix}/multilib/${libc}-build
-        DOWNLOAD_DIR ${multilib_prefix}/multilib/${libc}-dl
-        TMP_DIR ${multilib_prefix}/multilib/${libc}-tmp
-        INSTALL_DIR ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR}${library_subdir}
-        DEPENDS ${lib_tool_dependencies}
-        CMAKE_ARGS
-        ${compiler_launcher_cmake_args}
-        -DC_LIBRARY=${libc}
-        -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
-        -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
-        -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
-#         -DFETCHCONTENT_SOURCE_DIR_PICOLIBC=${FETCHCONTENT_SOURCE_DIR_PICOLIBC}
-        -DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}
-        -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-        -DPROJECT_PREFIX=${multilib_prefix}
-        -DNUMERICAL_BUILD_NAMES=${SHORT_BUILD_PATHS}
-        USES_TERMINAL_CONFIGURE TRUE
-        USES_TERMINAL_BUILD TRUE
-        LIST_SEPARATOR ,
-        CONFIGURE_HANDLED_BY_BUILD TRUE
-        TEST_EXCLUDE_FROM_MAIN TRUE
-        STEP_TARGETS build install
-    )
+        set(multilib_project multilib-${libc})
+        # Use a per-libc prefix to avoid subproject build dir conflicts.
+        set(multilib_prefix ${CMAKE_BINARY_DIR}/multilib-builds)
+        set(libc_install_dir ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR})
 
-    add_dependencies(
-        llvm-toolchain-runtimes
-        multilib-${libc}-install
-    )
+        ExternalProject_Add(
+            ${multilib_project}
+            SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
+            STAMP_DIR ${multilib_prefix}/multilib/${libc}-stamp
+            BINARY_DIR ${multilib_prefix}/multilib/${libc}-build
+            DOWNLOAD_DIR ${multilib_prefix}/multilib/${libc}-dl
+            TMP_DIR ${multilib_prefix}/multilib/${libc}-tmp
+            INSTALL_DIR ${libc_install_dir}
+            DEPENDS ${lib_tool_dependencies}
+            CMAKE_ARGS
+            ${compiler_launcher_cmake_args}
+            -DC_LIBRARY=${libc}
+            -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
+            -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
+            -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
+            -DFETCHCONTENT_SOURCE_DIR_PICOLIBC=${FETCHCONTENT_SOURCE_DIR_PICOLIBC}
+            -DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}
+            -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+            -DPROJECT_PREFIX=${multilib_prefix}
+            -DNUMERICAL_BUILD_NAMES=${SHORT_BUILD_PATHS}
+            USES_TERMINAL_CONFIGURE TRUE
+            USES_TERMINAL_BUILD TRUE
+            LIST_SEPARATOR ,
+            CONFIGURE_HANDLED_BY_BUILD TRUE
+            TEST_EXCLUDE_FROM_MAIN TRUE
+            STEP_TARGETS build install
+        )
+
+        add_dependencies(
+            llvm-toolchain-runtimes
+            multilib-${libc}-install
+        )
 
 # endif()
 
@@ -556,7 +545,6 @@ add_dependencies(
 
 
 # package-llvm-toolchain - target to create package
-
 
 # add_custom_target(check-llvm-toolchain)
 # add_dependencies(check-llvm-toolchain check-libc)
