@@ -21,8 +21,6 @@ To keep the toolchain simpler and focused, it uses **newlib** exclusively as the
 
 The source code is a hard fork of LLVM (the official `llvm-project` repository [LLVM project](https://github.com/llvm/llvm-project)), and it is periodically kept in sync via upstream merges. A new top-level folder, `riscv-software`, is added at the root; this directory contains all of the additional code, scripts, and configuration files needed to build the **RISC-V Toolchain for Embedded (RTfE)**.
 
-At present, the toolchain **does not include C++ support**. The scaffolding (code and build options) for C++ is present but commented out. Even so, the toolchain can compile existing bare-metal RISC-V projects originally developed with a GCC-based toolchain.
-
 This toolchain is intended to run on **Linux** or **macOS**. **Windows is not supported** at this time.
 
 ### Prerequisites
