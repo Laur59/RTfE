@@ -31,7 +31,7 @@ cmake_path(SET llvmproject_src_dir NORMALIZE "${TOOLCHAIN_SOURCE_DIR}/../..")
 set(MULTILIB_JSON "" CACHE STRING "JSON file to load library definitions from.")
 set(ENABLE_VARIANTS "all" CACHE STRING "Semicolon separated list of variants to build, or \"all\". Must match entries in the json.")
 set(C_LIBRARY "newlib" CACHE STRING "Which C library to use.")
-set_property(CACHE C_LIBRARY PROPERTY STRINGS newlib picolibc newlib-nano llvmlibc)
+set_property(CACHE C_LIBRARY PROPERTY STRINGS picolibc newlib newlib-nano llvmlibc)
 set(PROJECT_PREFIX "${CMAKE_BINARY_DIR}/lib-builds" CACHE STRING "Directory to build subprojects in.")
 option(
     NUMERICAL_BUILD_NAMES
@@ -92,6 +92,35 @@ endif()
 # Target for any dependencies to build the runtimes project.
 add_custom_target(runtimes-depends)
 
+if(ENABLE_PARALLEL_LIB_CONFIG OR ENABLE_PARALLEL_LIB_BUILD)
+    # Additional targets to build the variant subprojects in parallel.
+    # The build steps can use multible jobs to compile in parallel, but
+    # the configuration steps are largely single threaded. This creates a
+    # bottleneck if each variant is built in series.
+    # It is significantly faster to run all the subproject configuration
+    # steps in parallel, run the build steps, then run the next set of
+    # configuration steps in parallel, etc.
+    set(
+        subtargets
+        compiler_rt-configure
+        compiler_rt-build
+        clib-configure
+        clib-build
+        cxxlibs-configure
+        cxxlibs-build
+    )
+    list(LENGTH subtargets subtarget_count)
+    set(subtarget_deps none ${subtargets})
+    list(REMOVE_AT subtarget_deps ${subtarget_count})
+
+    foreach(subtarget subtarget_dep IN ZIP_LISTS subtargets subtarget_deps)
+        add_custom_target(${subtarget}-all)
+        if(NOT subtarget_dep STREQUAL "none")
+            add_dependencies(${subtarget}-all ${subtarget_dep}-all)
+        endif()
+    endforeach()
+endif()
+
 # Read the JSON file to load a multilib configuration.
 file(READ ${MULTILIB_JSON} multilib_json_str)
 string(JSON multilib_defs GET ${multilib_json_str} "libs")
@@ -149,6 +178,7 @@ foreach(lib_idx RANGE ${lib_count_dec})
                 ${passthrough_dirs}
                 ${additional_cmake_args}
                 -DVARIANT_JSON=${variant_json_file}
+                -DC_LIBRARY=${C_LIBRARY}
                 -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
                 -DPROJECT_PREFIX=${PROJECT_PREFIX}
                 STEP_TARGETS build install

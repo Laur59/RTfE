@@ -1,0 +1,22 @@
+[binaries]
+c = [@picolibc_meson_flags@, '-nostdlib']
+cpp = [@picolibcpp_meson_flags@, '-nostdlib']
+ar = '@LLVM_BINARY_DIR@/bin/llvm-ar@CMAKE_EXECUTABLE_SUFFIX@'
+nm = '@LLVM_BINARY_DIR@/bin/llvm-nm@CMAKE_EXECUTABLE_SUFFIX@'
+strip = '@LLVM_BINARY_DIR@/bin/llvm-strip@CMAKE_EXECUTABLE_SUFFIX@'
+
+[host_machine]
+system = 'none'
+cpu_family = '@cpu_family@'
+cpu = 'riscv'
+endian = 'little'
+
+[properties]
+c_args = ['-Werror=double-promotion', '-fshort-enums']
+skip_sanity_check = true
+has_link_defsym = true
+libgcc = '-lclang_rt.builtins'
+default_flash_addr = 0
+default_flash_size = 0
+default_ram_addr   = 0
+default_ram_size   = 0
