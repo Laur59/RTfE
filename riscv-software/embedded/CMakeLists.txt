@@ -373,6 +373,39 @@ if(DEFINED LLVM_TOOLCHAIN_VERSION_SUFFIX)
     set(PACKAGE_VERSION "${PACKAGE_VERSION}-${LLVM_TOOLCHAIN_VERSION_SUFFIX}")
 endif()
 
+# set processor_name
+string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} processor_name)
+if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    # If we're compiling on OSX we need to understand what targets we're
+    #  building for.
+    string(FIND "${CMAKE_OSX_ARCHITECTURES}" "x86_64" x86_result)
+    string(FIND "${CMAKE_OSX_ARCHITECTURES}" "arm64" arm64_result)
+
+    if(NOT ${arm64_result} EQUAL -1)
+        set(processor_name "arm64")
+    elseif(NOT ${x86_result} EQUAL -1)
+        set(processor_name "x86_64")
+    endif()
+else()
+    string(REGEX MATCH "amd64|x64|x86" x86_match ${processor_name})
+    if(x86_match)
+        set(processor_name "x86_64")
+    else()
+        set(processor_name "AArch64")
+    endif()
+endif()
+
+# Process installation destination
+if(DEFINED INSTALL_DIR_PARENT)
+    # If a specific system name is supplied, use that instead.
+    if (PACKAGE_SYSTEM_NAME)
+        set(CPACK_SYSTEM_NAME "${PACKAGE_SYSTEM_NAME}-${processor_name}")
+    else()
+        set(CPACK_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}-${processor_name}")
+    endif()
+    set(CMAKE_INSTALL_PREFIX "${INSTALL_DIR_PARENT}/${PACKAGE_NAME}-${PACKAGE_VERSION}-${CPACK_SYSTEM_NAME}")
+endif()
+
 # Ensure LLVM tool symlinks are installed.
 list(APPEND CMAKE_MODULE_PATH ${llvmproject_src_dir}/llvm/cmake/modules)
 llvm_install_symlink(LLVM llvm-ranlib llvm-ar ALWAYS_GENERATE)
