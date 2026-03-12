@@ -163,6 +163,12 @@ New checks
 New check aliases
 ^^^^^^^^^^^^^^^^^
 
+- Renamed :doc:`hicpp-exception-baseclass
+  <clang-tidy/checks/hicpp/exception-baseclass>`
+  to :doc:`bugprone-std-exception-baseclass
+  <clang-tidy/checks/bugprone/std-exception-baseclass>`.
+  The `hicpp-exception-baseclass` name is kept as an alias.
+
 - Renamed :doc:`hicpp-ignored-remove-result
   <clang-tidy/checks/hicpp/ignored-remove-result>`
   to :doc:`bugprone-unused-return-value
@@ -280,6 +286,11 @@ Changes in existing checks
 - Improved :doc:`modernize-use-std-format
   <clang-tidy/checks/modernize/use-std-format>` check by fixing a crash
   when an argument is part of a macro expansion.
+
+- Improved :doc:`modernize-use-trailing-return-type
+  <clang-tidy/checks/modernize/use-trailing-return-type>` check by fixing
+  spurious ``missing '(' after '__has_feature'`` errors caused by builtin
+  macros appearing in the return type of a function.
 
 - Improved :doc:`modernize-use-using
   <clang-tidy/checks/modernize/use-using>` check by avoiding the generation
