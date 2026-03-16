@@ -30,29 +30,42 @@ class MockService : public Service {
 public:
   enum class Op { Detach, Shutdown };
 
-  static Error alwaysSucceed(Op) { return Error::success(); }
+  static void noop(Op) {}
 
   MockService(std::optional<size_t> &DetachOpIdx,
               std::optional<size_t> &ShutdownOpIdx, size_t &OpIdx,
-              move_only_function<Error(Op)> GenResult = alwaysSucceed)
+              move_only_function<void(Op)> GenResult = noop)
       : DetachOpIdx(DetachOpIdx), ShutdownOpIdx(ShutdownOpIdx), OpIdx(OpIdx),
         GenResult(std::move(GenResult)) {}
 
   void onDetach(OnCompleteFn OnComplete) override {
     DetachOpIdx = OpIdx++;
-    OnComplete(GenResult(Op::Detach));
+    GenResult(Op::Detach);
+    OnComplete();
   }
 
   void onShutdown(OnCompleteFn OnComplete) override {
     ShutdownOpIdx = OpIdx++;
-    OnComplete(GenResult(Op::Shutdown));
+    GenResult(Op::Shutdown);
+    OnComplete();
   }
 
 private:
   std::optional<size_t> &DetachOpIdx;
   std::optional<size_t> &ShutdownOpIdx;
   size_t &OpIdx;
-  move_only_function<Error(Op)> GenResult;
+  move_only_function<void(Op)> GenResult;
+};
+
+class ConfigurableService : public Service {
+public:
+  ConfigurableService(int ConstructorOption) {}
+
+  void onDetach(OnCompleteFn OnComplete) override { OnComplete(); }
+
+  void onShutdown(OnCompleteFn OnComplete) override { OnComplete(); }
+
+  void doMoreConfig(int) noexcept {}
 };
 
 class NoDispatcher : public TaskDispatcher {
@@ -360,6 +373,18 @@ TEST(SessionTest, ExpectedShutdownSequence) {
   S.waitForShutdown();
 
   EXPECT_TRUE(SessionShutdownComplete);
+}
+
+TEST(SessionTest, AddServiceAndUseRef) {
+  Session S(std::make_unique<NoDispatcher>(), noErrors);
+  auto &CS = S.addService(std::make_unique<ConfigurableService>(42));
+  CS.doMoreConfig(1);
+}
+
+TEST(SessionTest, CreateServiceAndUseRef) {
+  Session S(std::make_unique<NoDispatcher>(), noErrors);
+  auto &CS = S.createService<ConfigurableService>(42);
+  CS.doMoreConfig(1);
 }
 
 TEST(ControllerAccessTest, Basics) {
