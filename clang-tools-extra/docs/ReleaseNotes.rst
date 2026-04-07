@@ -291,6 +291,11 @@ Changes in existing checks
   <clang-tidy/checks/cppcoreguidelines/missing-std-forward>` check by fixing
   a false positive for constrained template parameters.
 
+- Improved :doc:`cppcoreguidelines-pro-type-member-init
+  <clang-tidy/checks/cppcoreguidelines/pro-type-member-init>` check by fixing
+  a false positive when a base class has a forward declaration before its
+  definition.
+
 - Improved :doc:`cppcoreguidelines-pro-type-vararg
   <clang-tidy/checks/cppcoreguidelines/pro-type-vararg>` check by no longer
   warning on builtins with custom type checking (e.g., type-generic builtins
@@ -398,6 +403,11 @@ Changes in existing checks
     and ``operator+=`` string member functions.
 
   - Fixes false negatives when using ``std::set`` from ``libstdc++``.
+
+- Improved :doc:`performance-trivially-destructible
+  <clang-tidy/checks/performance/trivially-destructible>` check by fixing
+  false positives when a class is seen through both a header include and
+  a C++20 module import.
 
 - Improved :doc:`readability-container-size-empty
   <clang-tidy/checks/readability/container-size-empty>` check:
