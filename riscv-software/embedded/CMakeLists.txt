@@ -136,6 +136,7 @@ set(BUG_REPORT_URL "https://github.com/Laur59/RTfE/issues" CACHE STRING "")
 set(LLVM_DISTRIBUTION_COMPONENTS
     clang-resource-headers
     clang
+    clangd
     dsymutil
     lld
     llvm-ar
