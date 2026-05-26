@@ -31,10 +31,28 @@
             "flags": "-mabi=ilp32f"
         },
         {
+            "variant": "rv32imafdc_ilp32d",
+            "dir": "rv32imafdc/ilp32d",
+            "json": "rv32imafdc_ilp32d.json",
+            "flags": "-mabi=ilp32d"
+        },
+        {
+            "variant": "rv32emac_ilp32e",
+            "dir": "rv32emac/ilp32e",
+            "json": "rv32emac_ilp32e.json",
+            "flags": "-mabi=ilp32e"
+        },
+        {
             "variant": "rv64imac_lp64",
             "dir": "",
             "json": "rv64imac_lp64.json",
             "flags": "-mabi=lp64"
+        },
+        {
+            "variant": "rv64imafc_lp64f",
+            "dir": "rv64imafc/lp64f",
+            "json": "rv64imafc_lp64f.json",
+            "flags": "-mabi=lp64f"
         },
         {
             "variant": "rv64imafdc_lp64d",
