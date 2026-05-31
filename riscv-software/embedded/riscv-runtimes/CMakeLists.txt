@@ -280,7 +280,9 @@ if(C_LIBRARY MATCHES "^newlib")
                 --disable-newlib-fvwrite-in-streamio
                 --disable-newlib-wide-orient
                 --enable-lite-exit
-                --enable-newlib-global-atexit)
+                --enable-newlib-global-atexit
+                --enable-newlib-io-long-long
+                --enable-newlib-io-float)
     else()
         if(LIBRARY_BUILD_TYPE STREQUAL minsizerelease)
             set(newlib_optim_flags "-O2")
