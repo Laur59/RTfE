@@ -1943,7 +1943,7 @@ void Clang::AddPPCTargetArgs(const ArgList &Args,
   if (Arg *A = Args.getLastArg(options::OPT_mtune_EQ)) {
     CmdArgs.push_back("-tune-cpu");
     StringRef CPU = llvm::PPC::getNormalizedPPCTuneCPU(T, A->getValue());
-    CmdArgs.push_back(Args.MakeArgString(CPU.str()));
+    CmdArgs.push_back(Args.MakeArgString(CPU));
   }
 
   // Select the ABI to use.
@@ -6945,8 +6945,17 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back("-fno-openmp-extensions");
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_number_of_sm_EQ);
       Args.AddAllArgs(CmdArgs, options::OPT_fopenmp_cuda_blocks_per_sm_EQ);
-      Args.AddAllArgs(CmdArgs,
-                      options::OPT_fopenmp_cuda_teams_reduction_recs_num_EQ);
+      // '-fopenmp-cuda-teams-reduction-recs-num=' is deprecated and has no
+      // effect: the teams reduction buffer is sized at kernel launch by the
+      // offload plugin to match the actual number of teams. Honoring a
+      // smaller user-supplied value would silently truncate the buffer for
+      // larger launches.
+      if (Arg *A = Args.getLastArg(
+              options::OPT_fopenmp_cuda_teams_reduction_recs_num_EQ))
+        D.Diag(diag::warn_drv_deprecated_custom)
+            << A->getAsString(Args)
+            << "the value is ignored; the teams reduction buffer is sized "
+               "automatically at kernel launch";
       if (Args.hasFlag(options::OPT_fopenmp_optimistic_collapse,
                        options::OPT_fno_openmp_optimistic_collapse,
                        /*Default=*/false))
@@ -9646,7 +9655,9 @@ void LinkerWrapper::ConstructJob(Compilation &C, const JobAction &JA,
       OPT_fsanitize_minimal_runtime,
       OPT_fno_sanitize_minimal_runtime,
       OPT_fsanitize_trap_EQ,
-      OPT_fno_sanitize_trap_EQ};
+      OPT_fno_sanitize_trap_EQ,
+      OPT_fslp_vectorize,
+      OPT_fno_slp_vectorize};
   const llvm::DenseSet<unsigned> LinkerOptions{OPT_mllvm, OPT_Zlinker_input};
   auto ToolChainHasRT = [&](const ToolChain &TC, StringRef Name) {
     return TC.getVFS().exists(
