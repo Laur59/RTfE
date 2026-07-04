@@ -254,11 +254,10 @@ enum class ArithOp { Add, Sub };
 // Returning values
 //===----------------------------------------------------------------------===//
 
-void cleanupAfterFunctionCall(InterpState &S, CodePtr OpPC,
-                              const Function *Func);
+void cleanupAfterFunctionCall(InterpState &S, const Function *Func);
 
 template <PrimType Name, class T = typename PrimConv<Name>::T>
-PRESERVE_NONE bool Ret(InterpState &S, CodePtr &PC) {
+PRESERVE_NONE bool Ret(InterpState &S) {
   const T &Ret = S.Stk.pop<T>();
 
   assert(S.Current);
@@ -266,11 +265,12 @@ PRESERVE_NONE bool Ret(InterpState &S, CodePtr &PC) {
 #ifndef NDEBUG
   assert(S.Current->getFrameOffset() == S.Stk.size() && "Invalid frame");
 #endif
+
   if (!S.checkingPotentialConstantExpression() || S.Current->Caller)
-    cleanupAfterFunctionCall(S, PC, S.Current->getFunction());
+    cleanupAfterFunctionCall(S, S.Current->getFunction());
 
   if (InterpFrame *Caller = S.Current->Caller) {
-    PC = S.Current->getRetPC();
+    S.PC = S.Current->getRetPC();
     InterpFrame::free(S.Current);
     S.Current = Caller;
     S.Stk.push<T>(Ret);
@@ -284,17 +284,16 @@ PRESERVE_NONE bool Ret(InterpState &S, CodePtr &PC) {
   return true;
 }
 
-PRESERVE_NONE inline bool RetVoid(InterpState &S, CodePtr &PC) {
-
+PRESERVE_NONE inline bool RetVoid(InterpState &S) {
 #ifndef NDEBUG
   assert(S.Current->getFrameOffset() == S.Stk.size() && "Invalid frame");
 #endif
 
   if (!S.checkingPotentialConstantExpression() || S.Current->Caller)
-    cleanupAfterFunctionCall(S, PC, S.Current->getFunction());
+    cleanupAfterFunctionCall(S, S.Current->getFunction());
 
   if (InterpFrame *Caller = S.Current->Caller) {
-    PC = S.Current->getRetPC();
+    S.PC = S.Current->getRetPC();
     InterpFrame::free(S.Current);
     S.Current = Caller;
   } else {
@@ -2884,6 +2883,19 @@ bool CastAPS(InterpState &S, CodePtr OpPC, uint32_t BitWidth) {
   return true;
 }
 
+// Cast an AP integer to Sint64, failing constant evaluation if the value is
+// negative or too large to fit (i.e. truncation would change the value).
+template <PrimType Name, class T = typename PrimConv<Name>::T>
+bool CastNoOverflow(InterpState &S, CodePtr OpPC) {
+  T Source = S.Stk.pop<T>();
+  APSInt Val = Source.toAPSInt();
+  if (Val.isNegative() || Val.getActiveBits() > 63)
+    return Invalid(S, OpPC);
+  S.Stk.push<Integral<64, true>>(
+      Integral<64, true>::from((int64_t)Val.getZExtValue()));
+  return true;
+}
+
 template <PrimType Name, class T = typename PrimConv<Name>::T>
 bool CastIntegralFloating(InterpState &S, CodePtr OpPC,
                           const llvm::fltSemantics *Sem, uint32_t FPOI) {
@@ -3686,7 +3698,7 @@ inline bool EndInit(InterpState &S, CodePtr OpPC) {
 // This is special-cased in the tablegen opcode emitter.
 // Its dispatch function will NOT call InterpNext
 // and instead simply return true.
-PRESERVE_NONE inline bool EndSpeculation(InterpState &S, CodePtr &OpPC) {
+PRESERVE_NONE inline bool EndSpeculation(InterpState &S) {
 #ifndef NDEBUG
   assert(S.SpeculationDepth != 0);
   --S.SpeculationDepth;
