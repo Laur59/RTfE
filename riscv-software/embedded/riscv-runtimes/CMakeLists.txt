@@ -416,26 +416,26 @@ if(C_LIBRARY STREQUAL llvmlibc)
             "${TEMP_LIB_DIR}/include"
     )
 
-    ExternalProject_Add(
-        llvmlibc-support
-        STAMP_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/stamp
-        BINARY_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/build
-        DOWNLOAD_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/dl
-        TMP_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/tmp
-        SOURCE_DIR ${TOOLCHAIN_SOURCE_DIR}/llvmlibc-support
-        INSTALL_DIR ${TEMP_LIB_DIR}
-        DEPENDS ${lib_tool_dependencies} llvmlibc-install
-        CMAKE_ARGS
-        ${compiler_launcher_cmake_args}
-        ${common_llvmlibc_cmake_args}
-        STEP_TARGETS build install
-        USES_TERMINAL_CONFIGURE TRUE
-        USES_TERMINAL_BUILD TRUE
-        USES_TERMINAL_INSTALL TRUE
-        USES_TERMINAL_TEST TRUE
-        LIST_SEPARATOR ,
-        CONFIGURE_HANDLED_BY_BUILD TRUE
-    )
+    # ExternalProject_Add(
+    #     llvmlibc-support
+    #     STAMP_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/stamp
+    #     BINARY_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/build
+    #     DOWNLOAD_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/dl
+    #     TMP_DIR ${PROJECT_PREFIX}/llvmlibc-support/${VARIANT_BUILD_ID}/tmp
+    #     SOURCE_DIR ${TOOLCHAIN_SOURCE_DIR}/llvmlibc-support
+    #     INSTALL_DIR ${TEMP_LIB_DIR}
+    #     DEPENDS ${lib_tool_dependencies} llvmlibc-install
+    #     CMAKE_ARGS
+    #     ${compiler_launcher_cmake_args}
+    #     ${common_llvmlibc_cmake_args}
+    #     STEP_TARGETS build install
+    #     USES_TERMINAL_CONFIGURE TRUE
+    #     USES_TERMINAL_BUILD TRUE
+    #     USES_TERMINAL_INSTALL TRUE
+    #     USES_TERMINAL_TEST TRUE
+    #     LIST_SEPARATOR ,
+    #     CONFIGURE_HANDLED_BY_BUILD TRUE
+    # )
 endif()
 
 add_dependencies(clib-configure ${C_LIBRARY}-configure)
