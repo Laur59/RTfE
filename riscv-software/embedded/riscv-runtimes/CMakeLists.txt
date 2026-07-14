@@ -35,15 +35,6 @@ set(VARIANT_JSON "" CACHE STRING "JSON file to load args from.")
 if(VARIANT_JSON)
     file(READ ${VARIANT_JSON} variant_json_read)
     # Load arguments common to all libraries.
-    # "TARGET_ARCH":
-    # "VARIANT":
-    # "COMPILE_FLAGS":
-    # "ENABLE_EXCEPTIONS":
-    # "ENABLE_RTTI":
-    # "LIBRARY_BUILD_TYPE":
-    # "MULTILIB_DIR":
-
-    # Load arguments specific to the chosen library, overwriting any existing values.
     string(JSON json_args GET ${variant_json_read} "args" "common")
     string(JSON json_args_len LENGTH ${json_args})
     math(EXPR json_args_len_dec "${json_args_len} - 1")
@@ -76,6 +67,9 @@ set(LIBRARY_BUILD_TYPE ${LIBRARY_BUILD_TYPE_def} CACHE STRING "Build type to use
 set_property(CACHE LIBRARY_BUILD_TYPE PROPERTY STRINGS ${SUPPORTED_LIBRARY_BUILD_TYPES})
 
 set(ENABLE_CXX_LIBS ${ENABLE_CXX_LIBS_def} CACHE BOOL "Build CXX libs")
+# set(ENABLE_LIBC_TESTS ${ENABLE_LIBC_TESTS_def} CACHE BOOL "Enable libc tests (picolibc, newlib, newlib-nano or llvm-libc).")
+# set(ENABLE_COMPILER_RT_TESTS ${ENABLE_COMPILER_RT_TESTS_def} CACHE BOOL "Enable compiler-rt tests.")
+# set(ENABLE_LIBCXX_TESTS ${ENABLE_LIBCXX_TESTS_def} CACHE BOOL "Enable libcxx tests.")
 set(LLVM_BINARY_DIR "" CACHE PATH "Path to LLVM toolchain root to build libraries with")
 
 set(PROJECT_PREFIX "subproj" CACHE STRING "Directory to build subprojects in.")
@@ -135,6 +129,33 @@ Use -march to specify the architecture.")
 endif()
 string(REPLACE "-unknown-" "-unknown-unknown-" normalized_target_triple ${target_triple})
 
+# if(ENABLE_COMPILER_RT_TESTS)
+#     # Generate xfails for compiler-rt.
+#     set(compiler_rt_lit_xfails_path "${CMAKE_CURRENT_BINARY_DIR}/${VARIANT}_compiler-rt_lit_xfails.txt")
+#     set(compiler_rt_lit_args "--path=${LLVM_BINARY_DIR}/bin @${compiler_rt_lit_xfails_path} ${LLVM_LIT_ARGS}")
+#     add_custom_target(
+#         compiler-rt-xfail-lit-args
+#         COMMAND ${Python3_EXECUTABLE}
+#             ${CMAKE_CURRENT_SOURCE_DIR}/test-support/xfails.py
+#             --variant ${VARIANT}
+#             --project compiler-rt
+#             --libc ${C_LIBRARY}
+#             --output-args ${compiler_rt_lit_xfails_path}
+#     )
+#
+#     set(compiler_rt_test_flags "${lib_compile_flags} ${test_link_flags}")
+#     set(
+#         compiler_rt_test_cmake_args
+#         -DCOMPILER_RT_INCLUDE_TESTS=ON
+#         -DCOMPILER_RT_EMULATOR=${lit_test_executor}
+#         -DCOMPILER_RT_TEST_COMPILER=${LLVM_BINARY_DIR}/bin/clang
+#         -DCOMPILER_RT_TEST_COMPILER_CFLAGS=${compiler_rt_test_flags}
+#         -DLLVM_INCLUDE_TESTS=ON
+#         -DLLVM_LIT_ARGS=${compiler_rt_lit_args}
+#         -DLLVM_EXTERNAL_LIT=${external_lit_path}
+#     )
+# endif()
+
 # Common compiler_rt flags used by both builtins and profile builds
 set(
     compiler_rt_common_flags
@@ -190,6 +211,37 @@ ExternalProject_Add(
         <INSTALL_DIR>/lib/${normalized_target_triple}
         "${TEMP_LIB_DIR}/lib"
 )
+
+# Build compiler-rt profile library after the C library is available.
+# ExternalProject_Add(
+#     compiler_rt_profile
+#     STAMP_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/stamp
+#     BINARY_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/build
+#     DOWNLOAD_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/dl
+#     TMP_DIR ${PROJECT_PREFIX}/compiler_rt_profile/${VARIANT_BUILD_ID}/tmp
+#     SOURCE_DIR ${llvmproject_src_dir}/runtimes
+#     INSTALL_DIR compiler-rt-profile/install
+#     DEPENDS compiler_rt-install clib-install
+#     CMAKE_ARGS
+#     ${compiler_rt_common_flags}
+#     ${compiler_launcher_cmake_args}
+#     ${compiler_rt_cmake_args}
+#     -DCOMPILER_RT_BUILD_BUILTINS=OFF
+#     -DCOMPILER_RT_BUILD_PROFILE=ON
+#     -DCOMPILER_RT_PROFILE_BAREMETAL=ON
+#     STEP_TARGETS configure build install
+#     USES_TERMINAL_CONFIGURE TRUE
+#     USES_TERMINAL_BUILD TRUE
+#     USES_TERMINAL_INSTALL TRUE
+#     LIST_SEPARATOR ,
+#     CONFIGURE_HANDLED_BY_BUILD TRUE
+#     INSTALL_COMMAND ${CMAKE_COMMAND} --install .
+#     COMMAND
+#         ${CMAKE_COMMAND}
+#         -E copy_directory
+#         <INSTALL_DIR>/lib/${normalized_target_triple}
+#         "${TEMP_LIB_DIR}/lib"
+# )
 
 ###############################################################################
 # picolibc
@@ -264,6 +316,107 @@ if(C_LIBRARY STREQUAL picolibc)
         TEST_EXCLUDE_FROM_MAIN TRUE
         STEP_TARGETS configure build install
     )
+
+#     add_custom_target(check-picolibc)
+#     add_dependencies(check-all check-picolibc)
+#     if(ENABLE_LIBC_TESTS)
+#         # meson builds the tests at the same time as the library.
+#         # So reconfigure to enable tests at a later point.
+#         ExternalProject_Add_Step(
+#             picolibc
+#             compile-tests
+#             COMMAND ${MESON_EXECUTABLE} setup -Dtests=true --reconfigure <BINARY_DIR> <SOURCE_DIR>
+#             COMMAND ${MESON_EXECUTABLE} compile -C <BINARY_DIR>
+#             USES_TERMINAL TRUE
+#             EXCLUDE_FROM_MAIN TRUE
+#         )
+#         ExternalProject_Add_StepTargets(picolibc compile-tests)
+#         ExternalProject_Add_StepDependencies(
+#             picolibc
+#             compile-tests
+#             picolibc-build
+#             compiler_rt-install
+#         )
+#
+#         # Timeout multipliers. The actual timeout value used in testing is:
+#         # Timeout in seconds (defined in the picolibc's testing specs) x Timeout multiplier
+#         # In general, tests execute slower with FVPs compared to qemu. However certain
+#         # variants can also be slower due to features enabled, for example:
+#         # * Armv6m big-endian
+#         # * Armv7m big-endian
+#         # * Armv8.1-M Main PACBTI optimized for code size
+#         if(TEST_EXECUTOR STREQUAL fvp)
+#             set(timeout_multiplier 2)
+#         else()
+#             set(timeout_multiplier 1)
+#         endif()
+#
+#         # Step target to run the picolibc test via meson.
+#         ExternalProject_Add_Step(
+#             picolibc
+#             check-meson
+#             COMMAND ${MESON_EXECUTABLE} test -C <BINARY_DIR> --no-rebuild -t ${timeout_multiplier}
+#             USES_TERMINAL TRUE
+#             EXCLUDE_FROM_MAIN TRUE
+#             ALWAYS TRUE
+#             DEPENDEES compile-tests
+#         )
+#         ExternalProject_Add_StepTargets(picolibc check-meson)
+#
+#         # Generate lit wrappers for the tests.
+#         set(picolibc_lit_dir ${CMAKE_CURRENT_BINARY_DIR}/picolibc_lit)
+#         ExternalProject_Add_Step(
+#             picolibc
+#             gen-lit-tests
+#             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test-support/gen-picolibc-lit-tests.py
+#                 --meson ${MESON_EXECUTABLE}
+#                 --build <BINARY_DIR>
+#                 --output ${picolibc_lit_dir}
+#                 --name picolibc-${variant_xml_name}
+#                 --timeout-multiplier ${timeout_multiplier}
+#             USES_TERMINAL TRUE
+#             EXCLUDE_FROM_MAIN TRUE
+#             DEPENDEES compile-tests
+#         )
+#         ExternalProject_Add_StepTargets(picolibc gen-lit-tests)
+#
+#         # Generate xfails for picolibc.
+#         set(picolibc_lit_xfails_path "${picolibc_lit_dir}/${VARIANT}_picolibc_lit_xfails.txt")
+#         add_custom_target(
+#             picolibc-xfail-lit-args
+#             COMMAND ${Python3_EXECUTABLE}
+#                 ${CMAKE_CURRENT_SOURCE_DIR}/test-support/xfails.py
+#                 --variant ${VARIANT}
+#                 --project picolibc
+#                 --libc ${C_LIBRARY}
+#                 --output-args ${picolibc_lit_xfails_path}
+#         )
+#
+#         set(check_lit_cmd "${Python3_EXECUTABLE} ${external_lit_path} ${picolibc_lit_dir} ${LLVM_LIT_ARGS} @${picolibc_lit_xfails_path}")
+#         # LLVM_LIT_ARGS has space separated flags, but the
+#         # step COMMAND needs a list of arguments.
+#         separate_arguments(check_lit_cmd)
+#
+#         # Step target to run the picolibc test via lit.
+#         ExternalProject_Add_Step(
+#             picolibc
+#             check-lit
+#             COMMAND ${check_lit_cmd}
+#             USES_TERMINAL TRUE
+#             EXCLUDE_FROM_MAIN TRUE
+#             ALWAYS TRUE
+#             DEPENDEES gen-lit-tests
+#         )
+#         ExternalProject_Add_StepTargets(picolibc check-lit)
+#         ExternalProject_Add_StepDependencies(
+#             picolibc
+#             check-lit
+#             picolibc-xfail-lit-args
+#         )
+#         add_dependencies(check-picolibc picolibc-check-lit)
+#         add_dependencies(clib-build ${C_LIBRARY}-compile-tests)
+#     endif()
+
 endif()
 
 ###############################################################################
@@ -350,6 +503,7 @@ endif()
 ###############################################################################
 
 if(C_LIBRARY STREQUAL llvmlibc)
+#     set(test_cmd "${lit_test_executor} @BINARY@")
     set(lib_compile_flags "${lib_compile_flags} -Wno-error=atomic-alignment")
 
     set(common_llvmlibc_cmake_args
@@ -394,6 +548,9 @@ if(C_LIBRARY STREQUAL llvmlibc)
         -DLLVM_ENABLE_RUNTIMES=libc
         -DLLVM_LIBC_ALL_HEADERS=ON
         -DLLVM_LIBC_FULL_BUILD=ON
+#         -DLIBC_TEST_LINK_OPTIONS_DEFAULT=-nostartfiles,-lsemihost,-T,llvmlibc.ld
+#         -DLIBC_TEST_CMD=${test_cmd}
+#         -DLIBC_TEST_HERMETIC_ONLY=true
         STEP_TARGETS configure build install
         USES_TERMINAL_CONFIGURE TRUE
         USES_TERMINAL_BUILD TRUE

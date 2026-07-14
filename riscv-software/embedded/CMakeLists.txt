@@ -67,11 +67,17 @@
 #   cmake . '-DLLVM_TOOLCHAIN_LIBRARY_VARIANTS=rv32i_ilp32;rv64imac_lp64'
 
 
+# CONFIGURE_HANDLED_BY_BUILD was introduced in CMake 3.20 and it
+# greatly speeds up incremental builds.
 cmake_minimum_required(VERSION 3.20)
 
 # Add CMake modules of project
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
+# option(
+#     LLVM_TOOLCHAIN_CROSS_BUILD_MINGW
+#     "Cross-build for Windows. Using this option implies that you accept the GCC & MinGW licenses."
+# )
 option(
     PREBUILT_TARGET_LIBRARIES
     "Target libraries are prebuilt so no need to build them"
@@ -105,7 +111,7 @@ option(
 option(
     ENABLE_PARALLEL_LIB_CONFIG
     "Run the library variant configuration steps in parallel."
-    OFF
+    ON
 )
 option(
     ENABLE_PARALLEL_LIB_BUILD
@@ -135,6 +141,16 @@ option(
     OFF
 )
 
+# Previously, the LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL option was
+# called LLVM_TOOLCHAIN_NEWLIB_OVERLAY_INSTALL. Detect a setting of
+# that name, in case it's in an existing CMakeCache.txt or command
+# line, and use it to set the default for the more general option
+# name.
+# if(LLVM_TOOLCHAIN_NEWLIB_OVERLAY_INSTALL)
+#   set(overlay_install_default ON)
+# else()
+#   set(overlay_install_default OFF)
+# endif()
 # option(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL
 #     "Make cpack build an overlay package that can be unpacked over the main toolchain to install a secondary set of libraries based on newlib or llvm-libc."
 #     ${overlay_install_default})
@@ -167,6 +183,18 @@ if(LLVM_TOOLCHAIN_ENABLED_LIBCS)
     # newlib-nano, llvmlibc) and is intentional: picolibc is the default
     # for ATfE, so it should always be the primary when enabled.
     list(GET LLVM_TOOLCHAIN_ENABLED_LIBCS 0 LLVM_TOOLCHAIN_PRIMARY_LIBC)
+
+#     if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL)
+#         list(LENGTH LLVM_TOOLCHAIN_ENABLED_LIBCS _overlay_libc_count)
+#         if(NOT _overlay_libc_count EQUAL 1)
+#             message(FATAL_ERROR
+#                 "Overlay builds require exactly one enabled C library. "
+#                 "Enable a single LLVM_TOOLCHAIN_ENABLE_* option when using overlays.")
+#         endif()
+#         if(LLVM_TOOLCHAIN_PRIMARY_LIBC STREQUAL "picolibc")
+#             message(FATAL_ERROR "LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL is only permitted for C libraries other than the default picolibc")
+#         endif()
+#     endif()
 endif()
 list(LENGTH LLVM_TOOLCHAIN_ENABLED_LIBCS LLVM_TOOLCHAIN_ENABLED_LIBCS_COUNT)
 set(LLVM_TOOLCHAIN_MULTI_LIB_BUILD OFF)
@@ -206,7 +234,9 @@ set(LLVM_DISTRIBUTION_COMPONENTS
 )
 set(LLVM_TOOLCHAIN_DISTRIBUTION_COMPONENTS
     llvm-toolchain-config-files
+#     llvm-toolchain-docs
     llvm-toolchain-libs
+#     llvm-toolchain-samples
     llvm-toolchain-third-party-licenses
     CACHE STRING "Components defined by this CMakeLists that should be
 installed by the install-llvm-toolchain target"
@@ -299,13 +329,25 @@ add_subdirectory(
     ${llvmproject_src_dir}/llvm llvm
 )
 
+# Generate a toolchain ID.
+# Use HOSTNAME.
+set(ID_SUFFIX "pre")
+cmake_host_system_information(RESULT builder_name QUERY HOSTNAME)
+set(builder_name ${builder_name}$ENV{USER})
+string(SHA256 builder_name_hash ${builder_name})
+string(SUBSTRING ${builder_name_hash} 0 8 builder_name_hash)
+set(RISCV_TOOLCHAIN_ID
+    "${ID_SUFFIX} (${builder_name_hash})" CACHE STRING
+    "Toolchain ID to identify product."
+)
+
 get_directory_property(LLVM_VERSION_MAJOR DIRECTORY ${llvmproject_src_dir}/llvm DEFINITION LLVM_VERSION_MAJOR)
 get_directory_property(LLVM_VERSION_MINOR DIRECTORY ${llvmproject_src_dir}/llvm DEFINITION LLVM_VERSION_MINOR)
 get_directory_property(LLVM_VERSION_PATCH DIRECTORY ${llvmproject_src_dir}/llvm DEFINITION LLVM_VERSION_PATCH)
 
 project(
     RiscvToolchainForEmbedded
-    VERSION 1.1
+    VERSION ${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}
     DESCRIPTION "RISC-V Toolchain for Embedded"
     HOMEPAGE_URL "https://github.com/Laur59/RTfE"
 )
@@ -329,6 +371,39 @@ set(CPACK_PACKAGE_NAME ${PACKAGE_NAME})
 set(PACKAGE_VERSION "${LLVM_VERSION_MAJOR}.${LLVM_VERSION_MINOR}.${LLVM_VERSION_PATCH}")
 if(DEFINED LLVM_TOOLCHAIN_VERSION_SUFFIX)
     set(PACKAGE_VERSION "${PACKAGE_VERSION}-${LLVM_TOOLCHAIN_VERSION_SUFFIX}")
+endif()
+
+# set processor_name
+string(TOLOWER ${CMAKE_SYSTEM_PROCESSOR} processor_name)
+if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+    # If we're compiling on OSX we need to understand what targets we're
+    #  building for.
+    string(FIND "${CMAKE_OSX_ARCHITECTURES}" "x86_64" x86_result)
+    string(FIND "${CMAKE_OSX_ARCHITECTURES}" "arm64" arm64_result)
+
+    if(NOT ${arm64_result} EQUAL -1)
+        set(processor_name "arm64")
+    elseif(NOT ${x86_result} EQUAL -1)
+        set(processor_name "x86_64")
+    endif()
+else()
+    string(REGEX MATCH "amd64|x64|x86" x86_match ${processor_name})
+    if(x86_match)
+        set(processor_name "x86_64")
+    else()
+        set(processor_name "AArch64")
+    endif()
+endif()
+
+# Process installation destination
+if(DEFINED INSTALL_DIR_PARENT)
+    # If a specific system name is supplied, use that instead.
+    if (PACKAGE_SYSTEM_NAME)
+        set(CPACK_SYSTEM_NAME "${PACKAGE_SYSTEM_NAME}-${processor_name}")
+    else()
+        set(CPACK_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}-${processor_name}")
+    endif()
+    set(CMAKE_INSTALL_PREFIX "${INSTALL_DIR_PARENT}/${PACKAGE_NAME}-${PACKAGE_VERSION}-${CPACK_SYSTEM_NAME}")
 endif()
 
 # Ensure LLVM tool symlinks are installed.
@@ -358,11 +433,22 @@ add_custom_target(
     -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_version_txt.cmake
     BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt
 )
-install(
-    FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
-    DESTINATION .
-    COMPONENT llvm-toolchain-third-party-licenses
-)
+# if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL)
+#     list(GET LLVM_TOOLCHAIN_ENABLED_LIBCS 0 _version_libc_name)
+#     install(
+#         FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
+#         DESTINATION .
+#         RENAME VERSION_${_version_libc_name}.txt
+#         COMPONENT llvm-toolchain-third-party-licenses
+#     )
+# else()
+    install(
+        FILES "${CMAKE_CURRENT_BINARY_DIR}/VERSION.txt"
+        DESTINATION .
+        COMPONENT llvm-toolchain-third-party-licenses
+    )
+# endif()
+
 
 # Groups all the targets that comprise the toolchain.
 add_custom_target(llvm-toolchain ALL)
@@ -381,80 +467,112 @@ add_dependencies(
     version_txt
 )
 
-if(LIBS_DEPEND_ON_TOOLS)
-    set(lib_tool_dependencies
-        clang
-        lld
-        llvm-ar
-        llvm-config
-        llvm-nm
-        llvm-ranlib
-        llvm-strip
-    )
+# Set LLVM_DEFAULT_EXTERNAL_LIT to the directory of clang
+# which was build in previous step. This path is not exported
+# by add_subdirectory of llvm project
+# set(LLVM_DEFAULT_EXTERNAL_LIT "${LLVM_BINARY_DIR}/bin/llvm-lit")
+
+# add_custom_target(check-llvm-toolchain-runtimes)
+# set(LLVM_TOOLCHAIN_LIBC_CHECK_TARGETS "")
+# foreach(libc IN LISTS LLVM_TOOLCHAIN_ENABLED_LIBCS)
+#     set(_libc_multilib_name multilib-${libc})
+#     set(_libc_check_target check-${_libc_multilib_name}-libc)
+#     add_custom_target(${_libc_check_target})
+#     list(APPEND LLVM_TOOLCHAIN_LIBC_CHECK_TARGETS ${_libc_check_target})
+#     add_custom_target(check-${libc})
+# endforeach()
+# add_custom_target(check-libc)
+# add_dependencies(check-libc ${LLVM_TOOLCHAIN_LIBC_CHECK_TARGETS})
+# add_custom_target(check-compiler-rt)
+# add_custom_target(check-cxx)
+# add_custom_target(check-cxxabi)
+# add_custom_target(check-unwind)
+# set(LLVM_TOOLCHAIN_SHARED_CHECK_TARGETS
+#     check-compiler-rt check-cxx check-cxxabi check-unwind)
+
+if(NOT PREBUILT_TARGET_LIBRARIES)
+    if(LIBS_DEPEND_ON_TOOLS)
+        set(lib_tool_dependencies
+            clang
+            lld
+            llvm-ar
+            llvm-config
+            llvm-nm
+            llvm-ranlib
+            llvm-strip
+        )
+    endif()
+
+
+#     add_dependencies(
+#         check-llvm-toolchain-runtimes
+#         check-libc
+#         ${LLVM_TOOLCHAIN_SHARED_CHECK_TARGETS}
+#     )
+
+    if(LIBS_USE_COMPILER_LAUNCHER)
+        if(CMAKE_C_COMPILER_LAUNCHER)
+            list(APPEND compiler_launcher_cmake_args "-DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}")
+        endif()
+        if(CMAKE_CXX_COMPILER_LAUNCHER)
+            list(APPEND compiler_launcher_cmake_args "-DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}")
+        endif()
+    endif()
+
+    # ENABLE_VARIANTS expects a semi-colon separated list.
+    # To prevent CMake expanding it automatically while passing it
+    # down, switch to comma separated. Enabling the ExternalProject
+    # LIST_SEPARATOR option will handle switching it back.
+    string(REPLACE ";" "," ENABLE_VARIANTS_PASSTHROUGH "${LLVM_TOOLCHAIN_LIBRARY_VARIANTS}")
+
+    foreach(libc IN LISTS LLVM_TOOLCHAIN_ENABLED_LIBCS)
+        set(multilib_project multilib-${libc})
+        # Use a per-libc prefix to avoid subproject build dir conflicts.
+        set(multilib_prefix ${CMAKE_BINARY_DIR}/${multilib_project}-builds)
+        set(libc_install_dir ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR})
+        if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL OR NOT libc STREQUAL LLVM_TOOLCHAIN_PRIMARY_LIBC)
+            string(APPEND libc_install_dir "/${libc}")
+        endif()
+
+        ExternalProject_Add(
+            ${multilib_project}
+            SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
+            STAMP_DIR ${multilib_prefix}/multilib/stamp
+            BINARY_DIR ${multilib_prefix}/multilib/build
+            DOWNLOAD_DIR ${multilib_prefix}/multilib/dl
+            TMP_DIR ${multilib_prefix}/multilib/tmp
+            INSTALL_DIR ${libc_install_dir}
+            DEPENDS ${lib_tool_dependencies}
+            CMAKE_ARGS
+            ${compiler_launcher_cmake_args}
+            -DC_LIBRARY=${libc}
+            -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
+            -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
+            -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
+            -DENABLE_MULTILIB_HEADER_OPTIMISATION=${ENABLE_MULTILIB_HEADER_OPTIMISATION}
+            -DENABLE_PARALLEL_LIB_CONFIG=${ENABLE_PARALLEL_LIB_CONFIG}
+            -DENABLE_PARALLEL_LIB_BUILD=${ENABLE_PARALLEL_LIB_BUILD}
+            -DPARALLEL_LIB_BUILD_LEVELS=${PARALLEL_LIB_BUILD_LEVELS}
+            -DFETCHCONTENT_SOURCE_DIR_PICOLIBC=${FETCHCONTENT_SOURCE_DIR_PICOLIBC}
+            -DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}
+            -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+            -DPROJECT_PREFIX=${multilib_prefix}
+            -DNUMERICAL_BUILD_NAMES=${SHORT_BUILD_PATHS}
+            USES_TERMINAL_CONFIGURE TRUE
+            USES_TERMINAL_BUILD TRUE
+            LIST_SEPARATOR ,
+            CONFIGURE_HANDLED_BY_BUILD TRUE
+            TEST_EXCLUDE_FROM_MAIN TRUE
+            STEP_TARGETS build install
+        )
+
+        add_dependencies(
+            llvm-toolchain-runtimes
+            ${multilib_project}-install
+        )
+
+    endforeach()
 endif()
-
-if(LIBS_USE_COMPILER_LAUNCHER)
-    if(CMAKE_C_COMPILER_LAUNCHER)
-        list(APPEND compiler_launcher_cmake_args "-DCMAKE_C_COMPILER_LAUNCHER=${CMAKE_C_COMPILER_LAUNCHER}")
-    endif()
-    if(CMAKE_CXX_COMPILER_LAUNCHER)
-        list(APPEND compiler_launcher_cmake_args "-DCMAKE_CXX_COMPILER_LAUNCHER=${CMAKE_CXX_COMPILER_LAUNCHER}")
-    endif()
-endif()
-
-# ENABLE_VARIANTS expects a semi-colon separated list.
-# To prevent CMake expanding it automatically while passing it
-# down, switch to comma separated. Enabling the ExternalProject
-# LIST_SEPARATOR option will handle switching it back.
-string(REPLACE ";" "," ENABLE_VARIANTS_PASSTHROUGH "${LLVM_TOOLCHAIN_LIBRARY_VARIANTS}")
-
-foreach(libc IN LISTS LLVM_TOOLCHAIN_ENABLED_LIBCS)
-    set(multilib_project multilib-${libc})
-    # Use a per-libc prefix to avoid subproject build dir conflicts.
-    set(multilib_prefix ${CMAKE_BINARY_DIR}/${multilib_project}-builds)
-    set(libc_install_dir ${CMAKE_CURRENT_BINARY_DIR}/llvm/${TARGET_LIBRARIES_DIR})
-    if(LLVM_TOOLCHAIN_LIBRARY_OVERLAY_INSTALL OR NOT libc STREQUAL LLVM_TOOLCHAIN_PRIMARY_LIBC)
-        string(APPEND libc_install_dir "/${libc}")
-    endif()
-
-    ExternalProject_Add(
-        ${multilib_project}
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/riscv-multilib
-        STAMP_DIR ${multilib_prefix}/multilib/stamp
-        BINARY_DIR ${multilib_prefix}/multilib/build
-        DOWNLOAD_DIR ${multilib_prefix}/multilib/dl
-        TMP_DIR ${multilib_prefix}/multilib/tmp
-        INSTALL_DIR ${libc_install_dir}
-        DEPENDS ${lib_tool_dependencies}
-        CMAKE_ARGS
-        ${compiler_launcher_cmake_args}
-        -DC_LIBRARY=${libc}
-        -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
-        -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
-        -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
-        -DENABLE_MULTILIB_HEADER_OPTIMISATION=${ENABLE_MULTILIB_HEADER_OPTIMISATION}
-        -DENABLE_PARALLEL_LIB_CONFIG=${ENABLE_PARALLEL_LIB_CONFIG}
-        -DENABLE_PARALLEL_LIB_BUILD=${ENABLE_PARALLEL_LIB_BUILD}
-        -DPARALLEL_LIB_BUILD_LEVELS=${PARALLEL_LIB_BUILD_LEVELS}
-        -DFETCHCONTENT_SOURCE_DIR_PICOLIBC=${FETCHCONTENT_SOURCE_DIR_PICOLIBC}
-        -DFETCHCONTENT_SOURCE_DIR_NEWLIB=${FETCHCONTENT_SOURCE_DIR_NEWLIB}
-        -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
-        -DPROJECT_PREFIX=${multilib_prefix}
-        -DNUMERICAL_BUILD_NAMES=${SHORT_BUILD_PATHS}
-        USES_TERMINAL_CONFIGURE TRUE
-        USES_TERMINAL_BUILD TRUE
-        LIST_SEPARATOR ,
-        CONFIGURE_HANDLED_BY_BUILD TRUE
-        TEST_EXCLUDE_FROM_MAIN TRUE
-        STEP_TARGETS build install
-    )
-
-    add_dependencies(
-        llvm-toolchain-runtimes
-        ${multilib_project}-install
-    )
-
-endforeach()
 
 install(
     DIRECTORY ${LLVM_BINARY_DIR}/${TARGET_LIBRARIES_DIR}/.
@@ -492,3 +610,118 @@ add_dependencies(
     install-llvm-toolchain
     install-distribution
 )
+
+
+# package-llvm-toolchain - target to create package
+
+# add_custom_target(check-llvm-toolchain)
+# add_dependencies(check-llvm-toolchain check-libc)
+# add_dependencies(check-llvm-toolchain check-compiler-rt)
+# add_subdirectory(test)
+# add_dependencies(check-llvm-toolchain check-llvm-toolchain-lit)
+# add_subdirectory(packagetest)
+
+# if(LLVM_TOOLCHAIN_CROSS_BUILD_MINGW)
+#     find_program(MINGW_C_EXECUTABLE x86_64-w64-mingw32-gcc-posix REQUIRED)
+#     find_program(MINGW_CXX_EXECUTABLE x86_64-w64-mingw32-g++-posix REQUIRED)
+#     cmake_path(SET MINGW_SYSROOT NORMALIZE "${MINGW_C_EXECUTABLE}/../../x86_64-w64-mingw32")
+#
+#     string(REPLACE ";" "," LLVM_ENABLE_PROJECTS_comma "${LLVM_ENABLE_PROJECTS}")
+#     string(REPLACE ";" "," LLVM_DISTRIBUTION_COMPONENTS_comma "${LLVM_DISTRIBUTION_COMPONENTS}")
+#     string(REPLACE ";" "," LLVM_TARGETS_TO_BUILD_comma "${LLVM_TARGETS_TO_BUILD}")
+#     ExternalProject_Add(
+#         mingw-llvm
+#         SOURCE_DIR ${llvmproject_src_dir}/llvm
+#         PREFIX mingw-llvm
+#         INSTALL_DIR mingw-llvm/install
+#         DEPENDS clang-tblgen llvm-config llvm-tblgen
+#         CMAKE_ARGS
+#         -DBUG_REPORT_URL=${BUG_REPORT_URL}
+#         -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+#         -DCMAKE_CROSSCOMPILING=ON
+#         -DCMAKE_C_COMPILER=${MINGW_C_EXECUTABLE}
+#         -DCMAKE_CXX_COMPILER=${MINGW_CXX_EXECUTABLE}
+#         -DCMAKE_FIND_ROOT_PATH=${MINGW_SYSROOT}
+#         -DCMAKE_FIND_ROOT_PATH_MODE_PROGRAM=NEVER
+#         -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
+#         -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY
+#         -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+#         -DCMAKE_SYSTEM_NAME=Windows
+#         -DCLANG_TABLEGEN=${LLVM_BINARY_DIR}/bin/clang-tblgen${CMAKE_EXECUTABLE_SUFFIX}
+#         -DLLVM_CMAKE_DIR=${LLVM_BINARY_DIR}/lib/cmake/llvm
+#         -DLLVM_DISTRIBUTION_COMPONENTS=${LLVM_DISTRIBUTION_COMPONENTS_comma}
+#         -DLLVM_ENABLE_PROJECTS=${LLVM_ENABLE_PROJECTS_comma}
+#         -DLLVM_TABLEGEN=${LLVM_BINARY_DIR}/bin/llvm-tblgen${CMAKE_EXECUTABLE_SUFFIX}
+#         -DLLVM_TARGETS_TO_BUILD=${LLVM_TARGETS_TO_BUILD_comma}
+#         -DLLVM_DEFAULT_TARGET_TRIPLE=${LLVM_DEFAULT_TARGET_TRIPLE}
+#         -DLLVM_EXTERNAL_PROJECTS=elf2bin
+#         -DLLVM_EXTERNAL_ELF2BIN_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/../shared/elf2bin
+#         BUILD_COMMAND "" # Let the install command build whatever it needs
+#         INSTALL_COMMAND "${CMAKE_COMMAND}" --build <BINARY_DIR> --target install-distribution
+#         USES_TERMINAL_CONFIGURE TRUE
+#         USES_TERMINAL_BUILD TRUE
+#         USES_TERMINAL_INSTALL TRUE
+#         LIST_SEPARATOR ,
+#         # Always run the build command so that incremental builds are correct.
+#         BUILD_ALWAYS TRUE
+#         CONFIGURE_HANDLED_BY_BUILD TRUE
+#     )
+#     ExternalProject_Get_Property(mingw-llvm INSTALL_DIR)
+#     # Handle symlinks such as clang++.
+#     # CPack supports putting symlinks in zip files but to Windows they
+#     # just look like a file containing text like "clang".
+#     # Convert the required symlinks to regular files and remove the
+#     # remaining ones.
+#     add_custom_command(
+#         TARGET mingw-llvm
+#         POST_BUILD
+#         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/cmake/handle-windows-symlinks.sh
+#         WORKING_DIRECTORY ${INSTALL_DIR}
+#     )
+#
+#     install(
+#         DIRECTORY ${INSTALL_DIR}/
+#         DESTINATION .
+#         COMPONENT llvm-toolchain-mingw
+#     )
+#
+#     # Copy MinGW licenses
+#     install(
+#         DIRECTORY mingw-licenses/
+#         DESTINATION third-party-licenses
+#         COMPONENT llvm-toolchain-third-party-licenses
+#     )
+#
+#     # Copy MinGW runtime DLLs
+#     foreach(mingw_runtime_dll
+#         libwinpthread-1.dll # POSIX thread API implementation
+#         libgcc_s_seh-1.dll  # GCC runtime
+#         libstdc++-6.dll     # C++ Standard Library
+#     )
+#         execute_process(
+#             COMMAND ${MINGW_C_EXECUTABLE} -print-file-name=${mingw_runtime_dll}
+#             OUTPUT_VARIABLE mingw_runtime_dll
+#             OUTPUT_STRIP_TRAILING_WHITESPACE
+#             COMMAND_ERROR_IS_FATAL ANY
+#         )
+#         install(
+#             FILES ${mingw_runtime_dll}
+#             TYPE BIN
+#             COMPONENT llvm-toolchain-mingw
+#         )
+#     endforeach()
+#
+#     add_dependencies(
+#         llvm-toolchain
+#         mingw-llvm
+#     )
+# endif()
+
+# add_custom_target(check-all-llvm-toolchain)
+#
+# add_dependencies(
+#     check-all-llvm-toolchain
+#     check-all
+#     check-llvm-toolchain
+#     check-llvm-toolchain-runtimes
+# )
