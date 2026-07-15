@@ -17,7 +17,7 @@ for bare-metal: [RISC-V Toolchain for Embedded](https://github.com/Laur59/RTfE/b
 
 This project provides a RISC‑V embedded toolchain inspired by the the methodology used in ARM’s embedded toolchain on GitHub ([1][1]). It specifically targets 32‑bit and 64‑bit RISC‑V cores, and is designed for **bare-metal** (no OS) systems only—i.e. embedded Linux for RISC-V is **not** supported.
 
-To keep the toolchain simpler and focused, it uses **newlib** exclusively as the C standard library. Unlike some other toolchains which allow alternatives such as **picolibc** or LLVM libc, this repository does **not** include those options. The toolchain is a **multilib** design, supporting multiple RISC-V variants via a single build infrastructure.
+The toolchain provides both a **C** and a **C++** standard library stack. For the C standard library it supports three interchangeable options — **picolibc** (the default), **newlib**, and **LLVM libc** (plus a **newlib-nano** variant) — selected at build time, with one primary C library per build. C++ support (libc++, libc++abi, and libunwind, configured for bare metal) is built by default. The toolchain is a **multilib** design, supporting multiple RISC-V variants via a single build infrastructure.
 
 The source code is a hard fork of LLVM (the official `llvm-project` repository [LLVM project](https://github.com/llvm/llvm-project)), and it is periodically kept in sync via upstream merges. A new top-level folder, `riscv-software`, is added at the root; this directory contains all of the additional code, scripts, and configuration files needed to build the **RISC-V Toolchain for Embedded (RTfE)**.
 
@@ -99,8 +99,8 @@ Below is a high-level sketch of the repository structure and the roles of key di
 ├── llvm/                      # Upstream LLVM fork (passes through standard LLVM subprojects)
 ├── clang/                     # Clang front end (as part of upstream fork)
 ├── compiler-rt/               # Compiler runtime support (e.g. builtins, sanitizer stubs, etc.)
-├── libc/                      # (Likely hosts newlib or bindings / integration code)
-├── libcxx/ / libcxxabi/       # (Present but not currently enabled for embedded)
+├── libc/                      # (LLVM libc; also hosts C-library integration code)
+├── libcxx/ / libcxxabi/       # (Enabled: static bare-metal C++ runtime — libc++, libc++abi)
 ├── lld/                       # Linker component
 ├── libunwind/                 # (If used or stubbed)
 ├── other LLVM subprojects ... # (e.g. MLIR, Polly, etc.)
@@ -118,7 +118,7 @@ Below is a high-level sketch of the repository structure and the roles of key di
 
 * **LLVM subprojects (e.g. `llvm/`, `clang/`, `lld/`)**: These directories mirror standard LLVM structure; your fork likely retains compatibility with upstream builds, integrating the additional RTfE patches.
 
-* **`libc/`, `libcxx/`, `libcxxabi/`**: These directories hold library code or interface glue; presently, only `newlib` (in `libc/`) is active; the others are present but disabled or commented out.
+* **`libc/`, `libcxx/`, `libcxxabi/`**: These directories hold library code or interface glue. The toolchain builds the selected C standard library (picolibc by default; newlib, newlib-nano, or LLVM libc optionally) together with the C++ runtime (libc++, libc++abi, and libunwind), all built statically for bare metal.
 
 * **`third-party/`**: This hosts external dependencies or vendored modules that cannot easily be fetched or built at runtime.
 
@@ -130,16 +130,46 @@ You might consider adding a **`docs/`** directory in the future for API or desig
 
 ## Toolchain Customization
 
-This section describes how one might adapt or extend the toolchain configuration to meet different project needs: enabling new variants, enabling or re-enabling C++ support, customizing ABI choices, etc.
+This section describes how one might adapt or extend the toolchain configuration to meet different project needs: enabling new variants, choosing the C standard library, toggling C++ support, customizing ABI choices, etc.
 
-### Enabling C++ Support
+### C++ Support
 
-Although the current release does not ship with C++ support, the infrastructure is present but commented out. To re-enable or incorporate C++ libraries:
+C++ support is **built by default**. Enabled via `ENABLE_CXX_LIBS` (default `ON`, in
+`riscv-software/embedded/riscv-runtimes/CMakeLists.txt`), the toolchain builds **libc++**,
+**libc++abi**, and **libunwind** for every variant, all statically linked and configured for
+bare metal (no shared libraries, no filesystem or threading support).
 
-1. **Uncomment or reintroduce the relevant build options and flags** in `riscv-software/embedded/CMakeLists.txt` (or related toolchain config files).
-2. Add or enable building of **libc++**, **libc++abi**, and possibly **libunwind** or stub support.
-3. Ensure that the C++ runtime and standard library code is compatible with the bare-metal constraints (e.g. no reliance on OS syscalls or dynamic memory unless handled explicitly).
-4. Adjust linker scripts or startup stubs to include C++ initialization (`_init`, `__cxa_atexit`, static constructors, etc.).
+* **Exceptions and RTTI** are controlled per variant through each variant's JSON definition
+  (`ENABLE_EXCEPTIONS` / `ENABLE_RTTI` in `riscv-software/embedded/riscv-multilib/json/variants/*.json`),
+  so you can enable or disable them on a per-target basis.
+* To build a **C-only** toolchain, configure with `-DENABLE_CXX_LIBS=OFF`.
+* As with any bare-metal C++ target, ensure your linker scripts and startup code handle C++
+  initialization (static constructors, `__cxa_atexit`, etc.).
+
+### Selecting the C Library
+
+The C standard library is chosen at configure time via CMake options in
+`riscv-software/embedded/CMakeLists.txt`. Any combination may be enabled; the **first** one in the
+fixed order below becomes the *primary* library.
+
+| Option | Default | Library |
+|--------|---------|---------|
+| `LLVM_TOOLCHAIN_ENABLE_PICOLIBC` | `ON` | picolibc (primary by default) |
+| `LLVM_TOOLCHAIN_ENABLE_NEWLIB` | `OFF` | newlib |
+| `LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO` | `OFF` | newlib-nano |
+| `LLVM_TOOLCHAIN_ENABLE_LLVMLIBC` | `OFF` | LLVM libc |
+
+The primary C library installs into `lib/clang-runtimes/`; any additional enabled libraries install
+into `lib/clang-runtimes/<libc>/`. For example, to build a newlib-based toolchain (turning off the
+default picolibc so newlib becomes primary):
+
+```bash
+cmake -S riscv-software/embedded -B $BUILD \
+  -DLLVM_TOOLCHAIN_ENABLE_PICOLIBC=OFF -DLLVM_TOOLCHAIN_ENABLE_NEWLIB=ON
+```
+
+The choice of C library is an axis **independent** of the ISA/ABI multilib variants (see below):
+each library is built for every configured variant.
 
 ### Multi‑ABI / Multi‑ISA Support
 
