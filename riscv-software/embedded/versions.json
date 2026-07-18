@@ -9,7 +9,7 @@
     "picolibc": {
       "url": "https://github.com/picolibc/picolibc.git",
       "tagType": "commithash",
-      "tag": "afce0169e2ff77e123027400caf3d70f4503d15d"
+      "tag": "7971005696aff8bc8244dfce503510705fed1fd7"
     },
     "newlib": {
       "url": "https://sourceware.org/git/newlib-cygwin.git",
