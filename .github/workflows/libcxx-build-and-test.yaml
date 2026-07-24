@@ -36,7 +36,7 @@ concurrency:
 jobs:
   stage1:
     if: github.repository_owner == 'llvm'
-    runs-on: llvm-premerge-libcxx-next-runners
+    runs-on: llvm-premerge-libcxx-release-runners
     continue-on-error: false
     strategy:
       fail-fast: false
@@ -79,7 +79,7 @@ jobs:
             **/crash_diagnostics/*
   stage2:
     if: github.repository_owner == 'llvm'
-    runs-on: llvm-premerge-libcxx-next-runners
+    runs-on: llvm-premerge-libcxx-release-runners
     needs: [ stage1 ]
     continue-on-error: false
     strategy:
@@ -130,7 +130,7 @@ jobs:
             **/crash_diagnostics/*
   stage3:
     if: github.repository_owner == 'llvm'
-    runs-on: llvm-premerge-libcxx-next-runners
+    runs-on: llvm-premerge-libcxx-release-runners
     needs: [ stage2 ]
     continue-on-error: false
     strategy:
@@ -144,6 +144,7 @@ jobs:
           'generic-hardening-mode-extensive-observe-semantic',
           'generic-hardening-mode-fast',
           'generic-hardening-mode-fast-with-abi-breaks',
+          'generic-llvm-libc',
           'generic-merged',
           'generic-modules-cxx17-lsv',
           'generic-no-exceptions',
