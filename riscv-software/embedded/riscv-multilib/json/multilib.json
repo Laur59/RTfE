@@ -4,19 +4,19 @@
             "variant": "rv32i_ilp32",
             "dir": "rv32i/ilp32",
             "json": "rv32i_ilp32.json",
-            "flags": "-march=rv32i -mabi=ilp32"
+            "flags": "-march=canon-rv32i -mabi=ilp32"
         },
         {
             "variant": "rv32im_ilp32",
             "dir": "rv32im/ilp32",
             "json": "rv32im_ilp32.json",
-            "flags": "-march=rv32im -mabi=ilp32"
+            "flags": "-march=canon-rv32im -mabi=ilp32"
         },
         {
             "variant": "rv32iac_ilp32",
             "dir": "rv32iac/ilp32",
             "json": "rv32iac_ilp32.json",
-            "flags": "-march=rv32iac -mabi=ilp32"
+            "flags": "-march=canon-rv32iac -mabi=ilp32"
         },
         {
             "variant": "rv32imac_ilp32",
@@ -62,6 +62,18 @@
         }
     ],
     "mappings": [
+        {
+            "match": "^-march=rv32i[0-9].*$",
+            "flags": "-march=canon-rv32i"
+        },
+        {
+            "match": "^-march=rv32i[0-9].*_m[0-9].*$",
+            "flags": "-march=canon-rv32im"
+        },
+        {
+            "match": "^-march=rv32i[0-9].*_a[0-9].*_c[0-9].*$",
+            "flags": "-march=canon-rv32iac"
+        },
         {
             "match": "^-march=rv32i.*_m.*_a.*_c.*$",
             "flags": "-march=canon-rv32imac"

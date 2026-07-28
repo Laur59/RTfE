@@ -2,7 +2,7 @@
     "args": {
         "common": {
             "TARGET_ARCH": "riscv32",
-            "ISA": "rv21i",
+            "ISA": "rv32i",
             "ABI": "ilp32",
             "VARIANT": "rv32i",
             "COMPILE_FLAGS": "-march=rv32i -mabi=ilp32",

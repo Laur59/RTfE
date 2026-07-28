@@ -151,6 +151,39 @@ endif()
 string(JSON lib_count LENGTH ${multilib_defs})
 math(EXPR lib_count_dec "${lib_count} - 1")
 
+# --- Header provider pre-pass ------------------------------------------------
+# Headers (and libc++ module sources in share/) are byte-identical across all
+# variants of a target triple, so they are installed only once per triple, at
+# <triple>/include and <triple>/share. Exactly one enabled variant -- the
+# "header provider" -- installs them: the triple's default variant (json
+# "dir" == "") if enabled, otherwise the first enabled variant of the triple.
+set(header_provider_riscv32-unknown-elf "")
+set(header_provider_riscv64-unknown-elf "")
+foreach(lib_idx RANGE ${lib_count_dec})
+    string(JSON lib_def GET ${multilib_defs} ${lib_idx})
+    string(JSON variant GET ${lib_def} "variant")
+    if(NOT (variant IN_LIST ENABLE_VARIANTS OR ENABLE_VARIANTS STREQUAL "all"))
+        continue()
+    endif()
+    # Error placeholders (no "json" key) build nothing and cannot provide headers.
+    string(JSON variant_json ERROR_VARIABLE json_error GET ${lib_def} "json")
+    if(variant_json STREQUAL "json-NOTFOUND")
+        continue()
+    endif()
+    string(JSON variant_multilib_dir GET ${lib_def} "dir")
+    if(variant MATCHES "^rv64")
+        set(provider_triple riscv64-unknown-elf)
+    else()
+        set(provider_triple riscv32-unknown-elf)
+    endif()
+    if(variant_multilib_dir STREQUAL "" OR variant_multilib_dir STREQUAL ".")
+        # The default variant is always preferred as provider.
+        set(header_provider_${provider_triple} ${variant})
+    elseif("${header_provider_${provider_triple}}" STREQUAL "")
+        set(header_provider_${provider_triple} ${variant})
+    endif()
+endforeach()
+
 foreach(lib_idx RANGE ${lib_count_dec})
     string(JSON lib_def GET ${multilib_defs} ${lib_idx})
     string(JSON variant GET ${lib_def} "variant")
@@ -170,11 +203,45 @@ foreach(lib_idx RANGE ${lib_count_dec})
             else()
                 set(parent_dir_name riscv32-unknown-elf)
             endif()
-            set(destination_directory "${CMAKE_CURRENT_BINARY_DIR}/multilib/${parent_dir_name}/${variant_multilib_dir}")
+            # Independent, non-nested staging directory for this variant. The
+            # riscv-runtimes subproject installs its full tree here (include/,
+            # lib/, share/); the variant's own library builds compile against
+            # this staged include/ via --sysroot, so staging keeps it even
+            # though the final install layout does not.
+            set(stage_dir "${CMAKE_CURRENT_BINARY_DIR}/multilib/stage/${variant}")
+
+            # Final destination for this variant's libraries. The full nested
+            # path is required: install(DIRECTORY) appends only the last
+            # source path component to DESTINATION, which used to flatten
+            # <arch>/<abi> dirs into stray duplicates.
+            if(variant_multilib_dir STREQUAL "" OR variant_multilib_dir STREQUAL ".")
+                set(install_dest "${parent_dir_name}")
+            else()
+                set(install_dest "${parent_dir_name}/${variant_multilib_dir}")
+            endif()
+
+            # Libraries: every variant ships its lib/ (crt0.o, libc.a, ...).
             install(
-                DIRECTORY ${destination_directory}
-                DESTINATION ${parent_dir_name}
+                DIRECTORY ${stage_dir}/lib
+                DESTINATION ${install_dest}
             )
+
+            # Headers are identical across the variants of a triple: only the
+            # per-triple header provider ships include/ (libc + libc++
+            # headers) and share/ (libc++ module sources), once, at the
+            # triple root. clang finds them through the ungrouped header
+            # pseudo-variant emitted into multilib.yaml below.
+            if(variant STREQUAL "${header_provider_${parent_dir_name}}")
+                install(
+                    DIRECTORY ${stage_dir}/include
+                    DESTINATION ${parent_dir_name}
+                )
+                install(
+                    DIRECTORY ${stage_dir}/share
+                    DESTINATION ${parent_dir_name}
+                    OPTIONAL
+                )
+            endif()
             set(variant_json_file ${CMAKE_CURRENT_SOURCE_DIR}/json/variants/${variant_json})
 
             # Read info from the variant specific json.
@@ -194,7 +261,7 @@ foreach(lib_idx RANGE ${lib_count_dec})
                 DOWNLOAD_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/dl
                 TMP_DIR ${PROJECT_PREFIX}/runtimes/${runtimes_id}/tmp
                 SOURCE_DIR ${TOOLCHAIN_SOURCE_DIR}/riscv-runtimes
-                INSTALL_DIR ${destination_directory}
+                INSTALL_DIR ${stage_dir}
                 DEPENDS runtimes-depends
                 CMAKE_ARGS
                 ${compiler_launcher_cmake_args}
@@ -228,13 +295,13 @@ foreach(lib_idx RANGE ${lib_count_dec})
             # In place of a json, an error message is expected.
             string(JSON variant_error_msg GET ${lib_def} "error")
 
-            string(APPEND multilib_yaml_content "- Error: \"${variant_error_msg}\"\n")
-            string(APPEND multilib_yaml_content "  Flags:\n")
+            string(APPEND multilib_yaml_content "  - Error: \"${variant_error_msg}\"\n")
+            string(APPEND multilib_yaml_content "    Flags:\n")
             string(REPLACE " " ";" multilib_flags_list ${variant_multilib_flags})
             foreach(flag ${multilib_flags_list})
-                string(APPEND multilib_yaml_content "  - ${flag}\n")
+                string(APPEND multilib_yaml_content "      - ${flag}\n")
             endforeach()
-            string(APPEND multilib_yaml_content "  Group: stdlibs\n")
+            string(APPEND multilib_yaml_content "    Group: stdlibs\n")
         endif()
     endif()
 
@@ -249,6 +316,31 @@ MultilibVersion: 1.0\n\
 \n\
 Variants:\n")
 
+# Header pseudo-variants: one ungrouped, always-matching variant per target
+# triple that has at least one enabled library variant. Having no Group, it
+# is selected by clang's layered multilib selection IN ADDITION to the
+# exclusive-group library variant, adding <triple>/include (C headers) and
+# <triple>/include/c++/v1 (libc++) to the search paths, plus a trailing
+# fallback -L <triple>/lib. Placed FIRST under Variants: clang appends paths
+# from selected multilibs in reverse YAML order, so the real variant's paths
+# always take precedence. The synthetic -rtfe-headers-rv* flag is injected
+# by a Mappings regex over the always-present --target=<normalized triple>
+# detected flag, so every target spelling (riscv32-unknown-elf,
+# riscv32-none-elf, ...) matches.
+set(multilib_yaml_pseudo "")
+set(multilib_yaml_pseudo_mappings "")
+foreach(bits 32 64)
+    set(pseudo_triple riscv${bits}-unknown-elf)
+    if(NOT "${header_provider_${pseudo_triple}}" STREQUAL "")
+        string(APPEND multilib_yaml_pseudo "  - Dir: ${pseudo_triple}\n")
+        string(APPEND multilib_yaml_pseudo "    Flags:\n")
+        string(APPEND multilib_yaml_pseudo "      - -rtfe-headers-rv${bits}\n")
+        string(APPEND multilib_yaml_pseudo_mappings "  - Match: ^--target=riscv${bits}-.*$\n")
+        string(APPEND multilib_yaml_pseudo_mappings "    Flags:\n")
+        string(APPEND multilib_yaml_pseudo_mappings "      - -rtfe-headers-rv${bits}\n")
+    endif()
+endforeach()
+
 # Groups: define 'stdlibs' as exclusive so exactly one variant is selected.
 set(multilib_yaml_groups
 "\n\
@@ -260,8 +352,10 @@ Groups:\n\
 # auto-detected flag (regex) to synthetic flags that variants can match on.
 set(multilib_yaml_mappings "")
 string(JSON mappings_count LENGTH ${mappings_defs})
-if(mappings_count GREATER 0)
+if(mappings_count GREATER 0 OR NOT multilib_yaml_pseudo_mappings STREQUAL "")
     string(APPEND multilib_yaml_mappings "\nMappings:\n")
+endif()
+if(mappings_count GREATER 0)
     math(EXPR mappings_count_dec "${mappings_count} - 1")
     foreach(map_idx RANGE ${mappings_count_dec})
         string(JSON map_def GET ${mappings_defs} ${map_idx})
@@ -275,9 +369,10 @@ if(mappings_count GREATER 0)
         endforeach()
     endforeach()
 endif()
+string(APPEND multilib_yaml_mappings "${multilib_yaml_pseudo_mappings}")
 
 # Write and install at lib/clang-runtimes/multilib.yaml.
 set(multilib_yaml_path "${CMAKE_CURRENT_BINARY_DIR}/multilib/multilib.yaml")
 file(WRITE ${multilib_yaml_path}
-    "${multilib_yaml_header}${multilib_yaml_content}${multilib_yaml_groups}${multilib_yaml_mappings}")
+    "${multilib_yaml_header}${multilib_yaml_pseudo}${multilib_yaml_content}${multilib_yaml_groups}${multilib_yaml_mappings}")
 install(FILES ${multilib_yaml_path} DESTINATION .)
