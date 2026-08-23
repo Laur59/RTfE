@@ -8,7 +8,7 @@
 # RUN: llc -mtriple=x86_64-- %loadnewpmbye -passes=goodbye --print-pipeline-passes -filetype=null %s | FileCheck %s --check-prefix=PIPELINE
 
 # CHECK: Bye: somefunk
-# PIPELINE: function((anonymous namespace)::Bye)
+# PIPELINE: function({{.*}}::Bye)
 ---
 name:            somefunk
 body: |

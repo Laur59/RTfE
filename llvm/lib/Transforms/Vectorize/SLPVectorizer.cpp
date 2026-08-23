@@ -748,6 +748,12 @@ public:
   /// Construct a vectorizable tree that starts at \p Roots.
   void buildTree(ArrayRef<Value *> Roots);
 
+  /// Sets the narrowed reduction chain instructions, dropped together with
+  /// the reduction.
+  void setNarrowedChainInsts(ArrayRef<Instruction *> Insts) {
+    NarrowedChainInsts.insert(Insts.begin(), Insts.end());
+  }
+
   /// Returns true if the last buildTree() observed a may-alias memory
   /// dependency between two distinct, range-checkable base objects, i.e. a
   /// dependency that could be turned into a runtime alias check.
@@ -958,6 +964,7 @@ public:
     ExtraBitWidthNodes.clear();
     InstrElementSize.clear();
     UserIgnoreList = nullptr;
+    NarrowedChainInsts.clear();
     PostponedGathers.clear();
     ValueToGatherNodes.clear();
     TreeEntryToStridedPtrInfoMap.clear();
@@ -5527,6 +5534,10 @@ private:
 
   /// List of users to ignore during scheduling and that don't need extracting.
   const SmallDenseSet<Value *> *UserIgnoreList = nullptr;
+
+  /// Narrowed reduction chain instructions, dropped together with the
+  /// reduction. Subset of UserIgnoreList.
+  SmallPtrSet<Value *, 4> NarrowedChainInsts;
 
   /// A DenseMapInfo implementation for holding DenseMaps and DenseSets of
   /// sorted SmallVectors of unsigned.
@@ -14489,16 +14500,40 @@ static InstructionCost canConvertToFMA(ArrayRef<Value *> VL,
   // Compare the costs.
   InstructionCost FMulPlusFAddCost = 0;
   InstructionCost FMACost = 0;
+  // Price both sides of the fmul+fadd pair as not fused. Passing a context
+  // instruction would let targets that model the fusion discount the unfused
+  // side of the comparison as well.
+  auto GetUnfusedFMulCost = [&](Instruction *I) {
+    assert(I->getOpcode() == Instruction::FMul && "Expected an fmul");
+    TTI::OperandValueInfo Op1Info = TTI::getOperandInfo(I->getOperand(0));
+    TTI::OperandValueInfo Op2Info = TTI::getOperandInfo(I->getOperand(1));
+    return TTI.getArithmeticInstrCost(I->getOpcode(), I->getType(), CostKind,
+                                      Op1Info, Op2Info,
+                                      {I->getOperand(0), I->getOperand(1)});
+  };
   FastMathFlags FMF;
   FMF.set();
+  const bool IsArithmeticState = S.isAddSubLikeOp() || S.isMulDivLikeOp() ||
+                                 S.isShiftOp() || S.isBitwiseLogicOp();
   for (Value *V : VL) {
     auto *I = dyn_cast<Instruction>(V);
     if (!I)
       continue;
-    if (!S.isCopyableElement(I))
+    const bool IsCopyable = S.isCopyableElement(I);
+    if (!IsCopyable)
       if (auto *FPCI = dyn_cast<FPMathOperator>(I))
         FMF &= FPCI->getFastMathFlags();
-    FMulPlusFAddCost += TTI.getInstructionCost(I, CostKind);
+    if (IsCopyable || !IsArithmeticState ||
+        (I->getOpcode() != S.getOpcode() &&
+         I->getOpcode() != S.getAltOpcode())) {
+      FMulPlusFAddCost += TTI.getInstructionCost(I, CostKind);
+      continue;
+    }
+    TTI::OperandValueInfo Op1Info = TTI::getOperandInfo(I->getOperand(0));
+    TTI::OperandValueInfo Op2Info = TTI::getOperandInfo(I->getOperand(1));
+    FMulPlusFAddCost += TTI.getArithmeticInstrCost(
+        I->getOpcode(), I->getType(), CostKind, Op1Info, Op2Info,
+        {I->getOperand(0), I->getOperand(1)});
   }
   unsigned NumOps = 0;
   for (auto [V, Op] : zip(VL, Operands.front())) {
@@ -14515,7 +14550,7 @@ static InstructionCost canConvertToFMA(ArrayRef<Value *> VL,
     ++NumOps;
     if (auto *FPCI = dyn_cast<FPMathOperator>(I))
       FMF &= FPCI->getFastMathFlags();
-    FMulPlusFAddCost += TTI.getInstructionCost(I, CostKind);
+    FMulPlusFAddCost += GetUnfusedFMulCost(I);
   }
   Type *Ty = VL.front()->getType();
   IntrinsicCostAttributes ICA(Intrinsic::fmuladd, Ty, {Ty, Ty, Ty}, FMF);
@@ -26158,7 +26193,11 @@ Value *BoUpSLP::vectorizeTree(
           !(GatheredLoadsEntriesFirst.has_value() &&
             IE->Idx >= *GatheredLoadsEntriesFirst && getRootNode().isGather() &&
             is_contained(getRootNodeScalars(), I)) &&
-          !(!getRootNode().isGather() && getRootNode().isCopyableElement(I)))
+          !(!getRootNode().isGather() && getRootNode().isCopyableElement(I)) &&
+          // Dropped narrowed reduction chain instructions may still use
+          // non-root scalars; such uses must be cleared as well.
+          none_of(I->users(),
+                  [&](User *U) { return NarrowedChainInsts.contains(U); }))
         continue;
       SmallVector<SelectInst *> LogicalOpSelects;
       I->replaceUsesWithIf(PoisonValue::get(I->getType()), [&](Use &U) {
@@ -31219,10 +31258,12 @@ public:
               return RedValI && V.isDeleted(RedValI);
             }))
           break;
-        if (RK == ReductionOrdering::Ordered)
+        if (RK == ReductionOrdering::Ordered) {
           V.buildTree(VL);
-        else
+        } else {
           V.buildTree(VL, IgnoreList);
+          V.setNarrowedChainInsts(NarrowedChainInsts);
+        }
         if (V.isTreeTinyAndNotFullyVectorizable(RK ==
                                                 ReductionOrdering::Unordered)) {
           constexpr unsigned CandidatesLimit = 64;
