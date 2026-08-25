@@ -116,8 +116,6 @@ latest release, please see the [Clang Web Site](https://clang.llvm.org) or the
   as being of type `std::size_t` instead of `int`,
   matching the deduction of array sizes from `int(&)[N]`.
   This is a breaking change for code that depended on the previously deduced type. (#GH195033)
-- Clang now rejects C++ declarations that combine the `auto` type specifier
-  with another type specifier, such as `auto int`.
 - Clang now rejects nested local classes defined in a different
   block scope than their parent class. (#GH193472)
 
@@ -161,6 +159,9 @@ latest release, please see the [Clang Web Site](https://clang.llvm.org) or the
 - Fixed Itanium mangling for lambdas in default member initializers of local
   classes to use `<local-name>` encoding, preventing mangling collisions between
   distinct local classes.
+- For `x86_64-windows-msvc` targets, Clang now aligns global variables using the MSVC size‑based alignment scheme instead of the x86‑64 psABI "large array" promotion rule.
+  This makes alignment behavior fully compatible with MSVC and fixes incorrect over‑alignment / under‑alignment of globals.
+  `-fclang-abi-compat=22` restores the previous behavior. (#GH196071), (#GH171855)
 
 ### AST Dumping Potentially Breaking Changes
 
@@ -454,6 +455,11 @@ latest release, please see the [Clang Web Site](https://clang.llvm.org) or the
   reproducable builds. These macros can be redefined from the command line if
   necessary. `/d1nodatetime-` can be used to turn this feature off if
   necessary to override the common build settings.
+
+- Added `-mscs-reg=<reg>` on Hexagon to select which callee-saved register
+  (`r16`-`r27`, default `r18`) holds the shadow call stack pointer under
+  `-fsanitize=shadow-call-stack`. The selected register must also be reserved
+  with the matching `-ffixed-<reg>`.
 
 ### Deprecated Compiler Flags
 
@@ -1114,8 +1120,25 @@ latest release, please see the [Clang Web Site](https://clang.llvm.org) or the
   address of specializations of templated functions that have overloads for both
   host and device. (#GH199299)
 
+#### PowerPC Support
+
+- Added support for AMO load and store builtins.
+- Added DMF crypto builtins for extended mnemonics.
+- Added ISA Future (`-mcpu=future`) builtins for AES encrypt/decrypt/key-generation,
+  Post-Quantum Cryptography Acceleration (`vec_mulh`), Deeply Compressed Weights
+  (`vec_uncompress*`/`vec_unpack_*`), and Elliptic Curve Cryptography.
+- Updated DMR builtin names to remove the `_mma` infix.
+- Added early target feature validation for PowerPC builtins during semantic analysis.
+- Added support for the following PowerPC BCD (Binary-Coded Decimal) builtins
+  for POWER9 targets (requires including `bcd.h`):
+  `__builtin_bcdshift`, `__builtin_bcdshiftround`, `__builtin_bcdtruncate`,
+  `__builtin_bcdunsignedtruncate`, and `__builtin_bcdunsignedshift`.
+
 #### AIX Support
 
+- Implemented the `ifunc` attribute with Function Multi-Versioning (FMV) /
+  `target_clones` (cpu-only) support.
+- Added diagnosis of invalid feature strings on the `target` attribute.
 - The driver default for the linker flag `-bcdtors` now defaults to `mbr`
   (instead of `all`) which only extracts static init from archive members which
   would otherwise be referenced.
@@ -1129,6 +1152,25 @@ latest release, please see the [Clang Web Site](https://clang.llvm.org) or the
   The string is included in the final executable and loaded into memory at program runtime.
 - The driver relaxes the restrictions on the `OBJECT_MODE` environment
   variable and now silently accepts `32_64` and `any`.
+- Fixed a bug where the `OBJECT_MODE` environment variable could override an
+  explicitly specified `--target` triple. `--target` now takes precedence over
+  `OBJECT_MODE`, ensuring lit tests and other callers that specify an explicit
+  32-bit or 64-bit triple get the correct bit mode regardless of environment.
+- The driver's `-print-search-dirs` output now includes the AIX system library
+  paths (`/usr/lib` and `/lib`), matching GCC behavior and fixing build-tool
+  failures (Meson, CMake) that rely on this output to construct `blibpath`.
+  The `AddFilePathLibArgs()` override also prevents duplicate `-L` flags in
+  linker commands.
+- The `+modern-aix-as` target feature is now automatically enabled when
+  targeting AIX with the integrated assembler (the default, or
+  `-fintegrated-as`). This makes instruction aliases gated on `ModernAs`
+  (e.g. `mfsprg`) available without requiring manual
+  `-Xclang -target-feature -Xclang +modern-aix-as`. The feature is not
+  enabled when `-fno-integrated-as` is specified.
+- The compiler-rt build now detects the RPC XDR header (`tirpc/rpc/xdr.h`
+  on AIX, `rpc/xdr.h` elsewhere). A new `COMPILER_RT_REQUIRE_RPC_XDR_H`
+  CMake option (default `ON` on AIX, `OFF` elsewhere) turns a missing
+  header into a fatal configuration error with an actionable message.
 
 #### NetBSD Support
 
@@ -1299,6 +1341,10 @@ latest release, please see the [Clang Web Site](https://clang.llvm.org) or the
 ### Sanitizers
 
 - UndefinedBehaviorSanitizer now supports `__ubsan_default_suppressions`.
+- UndefinedBehaviorSanitizer now performs null, alignment, and array-bounds
+  checks for aggregate (as opposed to scalar) copy operations in C; for C++,
+  this applies to trivial copy/move operations and some cases remain
+  unchecked. (#GH190739, #GH203737)
 - Sanitizer Special Case Lists (`-fsanitize-ignorelist`) now support
   Version 4 of the Special Case List format, which introduces a transition
   period for leading dot-slash (`./`) canonicalization in path matching.
