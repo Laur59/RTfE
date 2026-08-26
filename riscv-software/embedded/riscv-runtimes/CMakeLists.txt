@@ -302,6 +302,16 @@ if(C_LIBRARY STREQUAL picolibc)
             -Dtests-enable-stack-protector=false
             -Dtest-long-double=false
             -Dtests=false
+            # uKOS-X installs no thread pointer: it links -nostartfiles with its own
+            # crt0, so picolibc's crt0 - the only caller of _set_tls() - is never
+            # linked and picolibc's __tls stays zero. Thread-local data would then
+            # be addressed as tp + offset with tp unset, i.e. a near-null address:
+            # silently tolerated in machine mode, a fault in user mode. picolibc's
+            # default derives TLS from "not cc.has_function('__emutls_get_address')",
+            # which is false for GCC (libgcc ships emutls.o) but true for
+            # Clang/compiler-rt, so the two C libraries silently diverged. Pin the
+            # option so both agree; set it to true once a thread pointer exists.
+            -Dthread-local-storage=false
             --prefix <INSTALL_DIR>
             --cross-file ${CMAKE_CURRENT_BINARY_DIR}/meson-cross-build.txt
             --buildtype=${LIBRARY_MESON_BUILD_TYPE}
