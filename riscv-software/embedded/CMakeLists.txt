@@ -264,6 +264,32 @@ set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+# llvm-libc generates its public headers at build time with libc/utils/hdrgen,
+# which imports PyYAML. picolibc and newlib do not, so only check when llvm-libc
+# is actually being built. Without this the failure surfaces once per generated
+# header, deep inside the nested llvmlibc ExternalProject, as a bare
+# ModuleNotFoundError with no indication of which interpreter was used.
+if(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC)
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE} -c "import yaml"
+        RESULT_VARIABLE python3_yaml_result
+        OUTPUT_QUIET
+        ERROR_QUIET
+    )
+    if(NOT python3_yaml_result EQUAL 0)
+        message(FATAL_ERROR
+            "LLVM_TOOLCHAIN_ENABLE_LLVMLIBC is ON, but PyYAML is missing from the "
+            "Python interpreter this build selected:\n"
+            "    ${Python3_EXECUTABLE}\n"
+            "llvm-libc generates its headers with libc/utils/hdrgen, which imports "
+            "yaml. Re-run with the Python3_ROOT_DIR *environment* variable pointing "
+            "at an interpreter that has PyYAML -- it propagates into the nested "
+            "runtime builds, which do their own find_package(Python3):\n"
+            "    export Python3_ROOT_DIR=/Library/Frameworks/Python.framework/Versions/3.14\n"
+            "Alternatively install PyYAML for the interpreter named above.")
+    endif()
+endif()
+
 if(NOT CMAKE_C_COMPILER_LAUNCHER AND NOT CMAKE_CXX_COMPILER_LAUNCHER)
     # If ccache is available then use it by default.
     find_program(CCACHE_EXECUTABLE ccache)
@@ -550,6 +576,7 @@ if(NOT PREBUILT_TARGET_LIBRARIES)
             ${compiler_launcher_cmake_args}
             -DC_LIBRARY=${libc}
             -DLLVM_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/llvm
+            -DPython3_EXECUTABLE=${Python3_EXECUTABLE}
             -DMULTILIB_JSON=${LLVM_TOOLCHAIN_MULTILIB_JSON}
             -DENABLE_VARIANTS=${ENABLE_VARIANTS_PASSTHROUGH}
             -DENABLE_MULTILIB_HEADER_OPTIMISATION=${ENABLE_MULTILIB_HEADER_OPTIMISATION}
