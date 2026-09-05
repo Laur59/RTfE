@@ -80,6 +80,11 @@ endforeach()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter) # needed by fetch_*.cmake
 
+# Keep one interpreter for the whole build. The llvmlibc subproject runs its own
+# find_package(Python3) in a fresh cache and would otherwise be free to pick a
+# different one than the top-level PyYAML check validated.
+list(APPEND passthrough_dirs "-DPython3_EXECUTABLE=${Python3_EXECUTABLE}")
+
 include(ExternalProject)
 if(C_LIBRARY STREQUAL picolibc)
     include(${TOOLCHAIN_SOURCE_DIR}/cmake/fetch_picolibc.cmake)

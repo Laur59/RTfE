@@ -535,6 +535,8 @@ if(C_LIBRARY STREQUAL llvmlibc)
         # Let CMake know we're cross-compiling
         -DCMAKE_SYSTEM_NAME=Generic
         -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
+        # hdrgen needs PyYAML; use the interpreter the top level checked.
+        -DPython3_EXECUTABLE=${Python3_EXECUTABLE}
     )
 
     ExternalProject_Add(
