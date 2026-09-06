@@ -851,13 +851,14 @@ bool Compiler<Emitter>::VisitCastExpr(const CastExpr *E) {
   }
 
   case CK_PointerToBoolean:
-  case CK_MemberPointerToBoolean: {
-    PrimType PtrT = classifyPrim(SubExpr->getType());
-
     if (!this->visit(SubExpr))
       return false;
-    return this->emitIsNonNull(PtrT, E);
-  }
+    return this->emitIsNonNullPtr(E);
+
+  case CK_MemberPointerToBoolean:
+    if (!this->visit(SubExpr))
+      return false;
+    return this->emitIsNonNullMemberPtr(E);
 
   case CK_IntegralComplexToBoolean:
   case CK_FloatingComplexToBoolean: {
@@ -4339,11 +4340,9 @@ bool Compiler<Emitter>::VisitCXXNewExpr(const CXXNewExpr *E) {
         if (IsNoThrow) {
           if (!this->emitDupPtr(E))
             return false;
-          if (!this->emitNullPtr(0, nullptr, E))
+          if (!this->emitIsNonNullPtr(E))
             return false;
-          if (!this->emitEQPtr(E))
-            return false;
-          if (!this->jumpTrue(EndLabel, E))
+          if (!this->jumpFalse(EndLabel, E))
             return false;
         }
 
