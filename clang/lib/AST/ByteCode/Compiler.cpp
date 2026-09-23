@@ -734,9 +734,28 @@ bool Compiler<Emitter>::VisitCastExpr(const CastExpr *E) {
   case CK_NonAtomicToAtomic:
   case CK_NoOp:
   case CK_UserDefinedConversion:
-  case CK_AddressSpaceConversion:
   case CK_CPointerToObjCPointerCast:
     return this->delegate(SubExpr);
+
+  case CK_AddressSpaceConversion: {
+    if (E->containsErrors())
+      return false;
+
+    if (!this->visit(SubExpr))
+      return false;
+
+    uint64_t Val;
+    if (E->getType()->isPointerType())
+      Val = Ctx.getASTContext().getTargetNullPointerValue(E->getType());
+    else
+      Val = 0;
+
+    if (!this->emitCastAddressSpace(Val, E->getType().getTypePtr(), E))
+      return false;
+    if (DiscardResult)
+      return this->emitPopPtr(E);
+    return true;
+  }
 
   case CK_BitCast: {
     if (E->containsErrors())
@@ -2362,8 +2381,16 @@ bool Compiler<Emitter>::visitInitList(ArrayRef<const Expr *> Inits,
     auto initPrimitiveField = [=](const Record::Field *FieldToInit,
                                   const Expr *Init, PrimType T,
                                   bool Activate = false) -> bool {
-      InitStackScope<Emitter> ISS(this, isa<CXXDefaultInitExpr>(Init));
+      bool DefaultInit = isa<CXXDefaultInitExpr>(Init);
+      InitStackScope<Emitter> ISS(this, DefaultInit);
+
+      if (DefaultInit && !this->emitStartFieldInit(FieldToInit->Offset, Init))
+        return false;
+
       if (!this->visit(Init))
+        return false;
+
+      if (DefaultInit && !this->emitEndInit(Init))
         return false;
 
       bool BitField = FieldToInit->isBitField();
@@ -2392,7 +2419,10 @@ bool Compiler<Emitter>::visitInitList(ArrayRef<const Expr *> Inits,
       if (Activate && !this->emitActivate(E))
         return false;
 
-      return this->visitInitializerPop(Init);
+      if (!this->emitStartInit(Init))
+        return false;
+
+      return this->visitInitializerPop(Init) && this->emitEndInit(Init);
     };
 
     if (R->isUnion()) {

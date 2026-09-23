@@ -38,6 +38,8 @@ endif()
 # support-to-bedrock dependency shows up here as a link error rather than going
 # unnoticed. BedrockTests links both, Bedrock being a Support client.
 add_orc_rt_unittest(SupportTests
+  ErrorMatchersTest.cpp
+
   support/AllocActionTest.cpp
   support/BitmaskEnumTest.cpp
   support/CAPICompileTest.c
@@ -107,6 +109,7 @@ endif()
 
 add_orc_rt_unittest(BedrockTests
   bedrock/BootstrapInfoTest.cpp
+  bedrock/ConnectionSpecTest.cpp
   bedrock/ExecutorProcessInfoTest.cpp
   bedrock/InProcessControllerAccessTest.cpp
   bedrock/NativeDylibManagerTest.cpp
@@ -122,6 +125,7 @@ add_orc_rt_unittest(BedrockTests
   bedrock/sps/NativeDylibManagerSPSCITest.cpp
   bedrock/sps/SimpleNativeMemoryMapSPSCITest.cpp
   bedrock/sps/SimpleRemoteCATest.cpp
+  bedrock/sps/SimpleRemoteCAOverSocketTest.cpp
 
   bedrock/sys/CPUFeaturesTest.cpp
   bedrock/sys/TargetTripleTest.cpp
