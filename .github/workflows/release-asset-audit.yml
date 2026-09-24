@@ -19,7 +19,7 @@ permissions:
 jobs:
   audit:
     name: "Release Asset Audit"
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: github.repository == 'llvm/llvm-project'
     steps:
       - name: Checkout LLVM
@@ -46,7 +46,10 @@ jobs:
 
   notify-audit-failed:
     name: "Notify Audit Failed"
-    runs-on: ubuntu-24.04
+    environment:
+      name: main-branch-only
+      deployment: false
+    runs-on: ubuntu-26.04
     if: >-
       github.repository == 'llvm/llvm-project' &&
       github.event_name != 'pull_request' &&
@@ -64,6 +67,7 @@ jobs:
           client-id: ${{ secrets.LLVM_TOKEN_GENERATOR_CLIENT_ID }}
           private-key: ${{ secrets.LLVM_TOKEN_GENERATOR_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+          repositories: ${{ github.repository }}
           permission-contents: read
           permission-issues: write
       - name: "File Issue"
