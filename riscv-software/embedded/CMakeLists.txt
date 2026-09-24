@@ -128,6 +128,16 @@ option(LLVM_TOOLCHAIN_ENABLE_NEWLIB "Enable building newlib runtime" OFF)
 option(LLVM_TOOLCHAIN_ENABLE_NEWLIB_NANO "Enable building newlib-nano runtime" OFF)
 option(LLVM_TOOLCHAIN_ENABLE_LLVMLIBC "Enable building LLVM libc runtime" OFF)
 
+if(ENABLE_PARALLEL_LIB_CONFIG
+    AND LLVM_TOOLCHAIN_ENABLE_LLVMLIBC
+    AND CMAKE_VERSION VERSION_LESS 4.3.0)
+    message(FATAL_ERROR
+        "Parallel configuration of LLVM libc requires CMake 4.3.0 or later. "
+        "Older CMake versions can run out of memory during configuration. "
+        "Upgrade CMake or disable parallel configuration with "
+        "-DENABLE_PARALLEL_LIB_CONFIG=OFF.")
+endif()
+
 option(
     SHORT_BUILD_PATHS
     "Shorten the lengths of internal build paths, which may help with OS path
