@@ -40,6 +40,7 @@
 #include "mlir/Target/LLVMIR/Export.h"
 #include "mlir/Transforms/DialectConversion.h"
 #include "clang/CIR/Dialect/IR/CIRAttrs.h"
+#include "clang/CIR/Dialect/IR/CIRDataLayout.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "clang/CIR/Dialect/IR/CIRTypes.h"
 #include "clang/CIR/Dialect/Passes.h"
@@ -638,6 +639,9 @@ mlir::LogicalResult lowerToConstrainedFPIntrinsic(
   return mlir::success();
 }
 
+static mlir::LLVM::FastmathFlags
+convertFastMathFlags(cir::FastMathFlags cirFlags);
+
 static mlir::Value createConstrainedFPIntrinsicCall(
     mlir::ConversionPatternRewriter &rewriter, mlir::Location loc,
     mlir::ValueRange operands, mlir::Type llvmResTy, cir::FenvAttr fenv,
@@ -660,22 +664,31 @@ static mlir::Value createConstrainedFPIntrinsicCall(
 template <typename LLVMOp>
 mlir::LogicalResult lowerConstrainableFPOp(
     mlir::Operation *op, mlir::ValueRange operands, cir::FenvAttr fenv,
-    const mlir::TypeConverter &typeConverter,
+    cir::FastMathFlagsAttr fastmath, const mlir::TypeConverter &typeConverter,
     mlir::ConversionPatternRewriter &rewriter,
     llvm::StringRef constrainedMnemonic, bool hasRoundingMode) {
   mlir::Type llvmResTy = typeConverter.convertType(op->getResultTypes()[0]);
   if (!llvmResTy)
     return op->emitError("expected LLVM result type for floating-point op");
 
+  mlir::LLVM::FastmathFlags fastmathFlags = {};
+  if (fastmath)
+    fastmathFlags = convertFastMathFlags(fastmath.getValue());
+
   if (!fenv) {
-    rewriter.replaceOpWithNewOp<LLVMOp>(
+    auto newOp = rewriter.replaceOpWithNewOp<LLVMOp>(
         op, mlir::TypeRange{llvmResTy}, operands,
         cir::getDefaultProperties<LLVMOp>(op->getContext()));
+    if (fastmathFlags != mlir::LLVM::FastmathFlags::none)
+      mlir::cast<mlir::LLVM::FastmathFlagsInterface>(newOp.getOperation())
+          .setFastmathAttr(mlir::LLVM::FastmathFlagsAttr::get(
+              rewriter.getContext(), fastmathFlags));
     return mlir::success();
   }
 
   return lowerToConstrainedFPIntrinsic(op, operands, fenv, llvmResTy, rewriter,
-                                       constrainedMnemonic, hasRoundingMode);
+                                       constrainedMnemonic, hasRoundingMode,
+                                       fastmathFlags);
 }
 
 static mlir::LLVM::FastmathFlags
@@ -997,7 +1010,8 @@ mlir::Value CIRAttrToValue::visitCirAttr(cir::ConstVectorAttr attr) {
 CIRAttrToValue::LoweredGlobalSymbol
 CIRAttrToValue::getAddressOfSymbol(mlir::FlatSymbolRefAttr symbol) {
   auto moduleOp = parentOp->getParentOfType<mlir::ModuleOp>();
-  mlir::DataLayout dataLayout(moduleOp);
+  cir::CIRDataLayout cirDataLayout(moduleOp);
+  const mlir::DataLayout &dataLayout = cirDataLayout.layout;
   mlir::Type sourceType;
   unsigned addrSpace = 0;
   llvm::StringRef symName;
@@ -1016,9 +1030,11 @@ CIRAttrToValue::getAddressOfSymbol(mlir::FlatSymbolRefAttr symbol) {
   } else if (auto llvmFun = dyn_cast<mlir::LLVM::LLVMFuncOp>(sourceSymbol)) {
     sourceType = llvmFun.getFunctionType();
     symName = llvmFun.getSymName();
+    addrSpace = cirDataLayout.getProgramAddressSpace();
   } else if (auto fun = dyn_cast<cir::FuncOp>(sourceSymbol)) {
     sourceType = converter->convertType(fun.getFunctionType());
     symName = fun.getSymName();
+    addrSpace = cirDataLayout.getProgramAddressSpace();
   } else if (auto alias = dyn_cast<mlir::LLVM::AliasOp>(sourceSymbol)) {
     sourceType = alias.getType();
     symName = alias.getSymName();
@@ -2711,10 +2727,12 @@ mlir::LogicalResult CIRToLLVMConstantOpLowering::matchAndRewrite(
     attr = rewriter.getIntegerAttr(typeConverter->convertType(op.getType()),
                                    value);
   } else if (mlir::isa<cir::IntType>(op.getType())) {
-    // Lower GlobalViewAttr to llvm.mlir.addressof + llvm.mlir.ptrtoint
-    if (auto gv = mlir::dyn_cast<cir::GlobalViewAttr>(op.getValue())) {
-      auto newOp = lowerCirAttrAsValue(op, gv, rewriter, symbolTables,
-                                       getTypeConverter());
+    // Lower GlobalViewAttr to llvm.mlir.addressof + llvm.mlir.ptrtoint and
+    // BlockAddrDiffAttr to the difference of two llvm.blockaddress.
+    if (mlir::isa<cir::GlobalViewAttr, cir::BlockAddrDiffAttr>(op.getValue())) {
+      auto newOp =
+          lowerCirAttrAsValue(op, op.getValue(), rewriter, symbolTables,
+                              getTypeConverter(), &blockInfoAddr);
       rewriter.replaceOp(op, newOp);
       return mlir::success();
     }
@@ -2735,10 +2753,14 @@ mlir::LogicalResult CIRToLLVMConstantOpLowering::matchAndRewrite(
         return mlir::success();
       }
     }
-    // Lower GlobalViewAttr and GlobalOffsetAttr to llvm.mlir.addressof
-    if (mlir::isa<cir::GlobalViewAttr, cir::GlobalOffsetAttr>(op.getValue())) {
-      auto newOp = lowerCirAttrAsValue(op, op.getValue(), rewriter,
-                                       symbolTables, getTypeConverter());
+    // Lower GlobalViewAttr and GlobalOffsetAttr to llvm.mlir.addressof,
+    // non-null ConstPtrAttr to llvm.inttoptr and BlockAddrInfoAttr to
+    // llvm.blockaddress.
+    if (mlir::isa<cir::GlobalViewAttr, cir::GlobalOffsetAttr, cir::ConstPtrAttr,
+                  cir::BlockAddrInfoAttr>(op.getValue())) {
+      auto newOp =
+          lowerCirAttrAsValue(op, op.getValue(), rewriter, symbolTables,
+                              getTypeConverter(), &blockInfoAddr);
       rewriter.replaceOp(op, newOp);
       return mlir::success();
     }
@@ -2919,6 +2941,8 @@ static bool isHandledDiscardableFuncAttr(mlir::NamedAttribute attr) {
          attr.getName() == CIRDialect::getNoRecurseAttrName() ||
          attr.getName() == CIRDialect::getMustProgressAttrName() ||
          attr.getName() == CIRDialect::getNoBuiltinAttrName() ||
+         attr.getName() == CIRDialect::getOptNoneAttrName() ||
+         attr.getName() == CIRDialect::getNakedAttrName() ||
          attr.getName() == CIRDialect::getSYCLModuleIdAttrName() ||
          attr.getName() == CIRDialect::getDontCallErrorAttrName() ||
          attr.getName() == CIRDialect::getDontCallWarnAttrName();
@@ -3055,6 +3079,9 @@ mlir::LogicalResult CIRToLLVMFuncOpLowering::matchAndRewrite(
   if (op->hasAttr(CIRDialect::getNoReturnAttrName()))
     fn.setNoreturn(true);
 
+  if (op->hasAttr(CIRDialect::getOptNoneAttrName()))
+    fn.setOptimizeNone(true);
+
   if (std::optional<cir::UnwindTableKind> uwtableKind = op.getUwtable())
     fn.setUwtableKindAttr(mlir::LLVM::UWTableKindAttr::get(
         fn.getContext(), convertUWTableKind(*uwtableKind)));
@@ -3072,7 +3099,7 @@ mlir::LogicalResult CIRToLLVMFuncOpLowering::matchAndRewrite(
   for (llvm::StringRef flagAttr :
        {CIRDialect::getStrictFPAttrName(), CIRDialect::getNoRecurseAttrName(),
         CIRDialect::getMustProgressAttrName(),
-        CIRDialect::getNoBuiltinAttrName()})
+        CIRDialect::getNoBuiltinAttrName(), CIRDialect::getNakedAttrName()})
     if (op->hasAttr(flagAttr))
       passthrough.push_back(rewriter.getStringAttr(flagAttr));
 
@@ -3461,19 +3488,19 @@ mlir::LogicalResult CIRToLLVMSwitchFlatOpLowering::matchAndRewrite(
   }
 
   llvm::SmallVector<mlir::Block *, 8> caseDestinations;
-  llvm::SmallVector<mlir::ValueRange, 8> caseOperands;
 
   for (mlir::Block *x : op.getCaseDestinations())
     caseDestinations.push_back(x);
 
-  for (mlir::OperandRange x : op.getCaseOperands())
-    caseOperands.push_back(x);
+  // Use the converted operands so they match the type-converted successor
+  // block arguments.
+  llvm::SmallVector<mlir::ValueRange> caseOperands = adaptor.getCaseOperands();
 
   // Set switch op to branch to the newly created blocks.
   rewriter.setInsertionPoint(op);
   rewriter.replaceOpWithNewOp<mlir::LLVM::SwitchOp>(
       op, adaptor.getCondition(), op.getDefaultDestination(),
-      op.getDefaultOperands(), caseValues, caseDestinations, caseOperands);
+      adaptor.getDefaultOperands(), caseValues, caseDestinations, caseOperands);
   return mlir::success();
 }
 
@@ -4703,9 +4730,9 @@ void ConvertCIRToLLVMPass::runOnOperation() {
   /// repeated O(M) module-wide symbol scans for every call site.
   mlir::SymbolTableCollection symbolTables;
   mlir::RewritePatternSet patterns(&getContext());
-  patterns.add<CIRToLLVMBlockAddressOpLowering, CIRToLLVMGlobalOpLowering,
-               CIRToLLVMLabelOpLowering>(converter, patterns.getContext(), dl,
-                                         symbolTables, blockInfoAddr);
+  patterns.add<CIRToLLVMBlockAddressOpLowering, CIRToLLVMConstantOpLowering,
+               CIRToLLVMGlobalOpLowering, CIRToLLVMLabelOpLowering>(
+      converter, patterns.getContext(), dl, symbolTables, blockInfoAddr);
 
   patterns.add<
 #define GET_LLVM_LOWERING_PATTERNS_LIST
@@ -6432,11 +6459,10 @@ lowerDirectlyFromCIRToLLVMIR(mlir::ModuleOp mlirModule, LLVMContext &llvmCtx,
 
   (void)mlir::applyPassManagerCLOptions(pm);
 
-  if (mlir::failed(pm.run(mlirModule))) {
-    // FIXME: Handle any errors where they occurs and return a nullptr here.
-    report_fatal_error(
-        "The pass manager failed to lower CIR to LLVMIR dialect!");
-  }
+  // The failing pass has already reported its error through the MLIR
+  // diagnostic engine.
+  if (mlir::failed(pm.run(mlirModule)))
+    return nullptr;
 
   if (!mlirSaveTempsOutFile.empty()) {
     std::error_code ec;
@@ -6455,11 +6481,6 @@ lowerDirectlyFromCIRToLLVMIR(mlir::ModuleOp mlirModule, LLVMContext &llvmCtx,
   StringRef moduleName = mlirModule.getName().value_or("CIRToLLVMModule");
   std::unique_ptr<llvm::Module> llvmModule = mlir::translateModuleToLLVMIR(
       mlirModule, llvmCtx, moduleName, /*disableVerification=*/false, fs);
-
-  if (!llvmModule) {
-    // FIXME: Handle any errors where they occurs and return a nullptr here.
-    report_fatal_error("Lowering from LLVMIR dialect to llvm IR failed!");
-  }
 
   return llvmModule;
 }
