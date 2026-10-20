@@ -12,7 +12,7 @@
       "tag": "2ae376c6cdf4fef90ca2388ecf7a07457fa63cff"
     },
     "newlib": {
-      "url": "https://github.com/Laur59/mirror-newlib.git",
+      "url": "https://sourceware.org/git/newlib-cygwin.git",
       "tagType": "tag",
       "tag": "newlib-4.6.0"
     }
