@@ -554,12 +554,23 @@ if(C_LIBRARY STREQUAL llvmlibc)
         -DLIBC_CONF_TIME_64BIT=ON
         -DLIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED
         -DLIBC_CONF_PRINTF_DISABLE_FLOAT=OFF
-        -DLIBC_CONF_PRINTF_FLOAT_TO_STR_USE_FLOAT320=ON
+        # Dyadic float conversion keeps float printf small and light on stack.
+        # double is exact to ~50 significant digits. FLOAT320 adds ~12 KB on
+        # rv32imac and the default table method ~200 KB, too much for 128 KB
+        # flash parts like the GD32VF103.
+        # Known issue: long double (%Lf) prints wrong digits with this pair
+        # (3.14159 -> "3.000000"); without NO_SPECIALIZE_LD some %Lf crash.
+        -DLIBC_CONF_PRINTF_FLOAT_TO_STR_USE_DYADIC_FLOAT=ON
+        -DLIBC_CONF_PRINTF_FLOAT_TO_STR_NO_SPECIALIZE_LD=ON
         -DLLVM_CMAKE_DIR=${LLVM_BINARY_DIR}/lib/cmake/llvm
         -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON
         -DLLVM_ENABLE_RUNTIMES=libc
         -DLLVM_LIBC_ALL_HEADERS=ON
         -DLLVM_LIBC_FULL_BUILD=ON
+        # libc tests are not built; with tests on, LLVMLibCTestRules.cmake
+        # requires libclang_rt.builtins.a in the clang resource dir, which
+        # the per-variant compiler_rt build never installs there.
+        -DLLVM_INCLUDE_TESTS=OFF
 #         -DLIBC_TEST_LINK_OPTIONS_DEFAULT=-nostartfiles,-lsemihost,-T,llvmlibc.ld
 #         -DLIBC_TEST_CMD=${test_cmd}
 #         -DLIBC_TEST_HERMETIC_ONLY=true
