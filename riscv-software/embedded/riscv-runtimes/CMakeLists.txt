@@ -554,14 +554,7 @@ if(C_LIBRARY STREQUAL llvmlibc)
         -DLIBC_CONF_TIME_64BIT=ON
         -DLIBC_CONF_ERRNO_MODE=LIBC_ERRNO_MODE_SHARED
         -DLIBC_CONF_PRINTF_DISABLE_FLOAT=OFF
-        # Dyadic float conversion keeps float printf small and light on stack.
-        # double is exact to ~50 significant digits. FLOAT320 adds ~12 KB on
-        # rv32imac and the default table method ~200 KB, too much for 128 KB
-        # flash parts like the GD32VF103.
-        # Known issue: long double (%Lf) prints wrong digits with this pair
-        # (3.14159 -> "3.000000"); without NO_SPECIALIZE_LD some %Lf crash.
-        -DLIBC_CONF_PRINTF_FLOAT_TO_STR_USE_DYADIC_FLOAT=ON
-        -DLIBC_CONF_PRINTF_FLOAT_TO_STR_NO_SPECIALIZE_LD=ON
+        -DLIBC_CONF_PRINTF_FLOAT_TO_STR_USE_FLOAT320=ON
         -DLLVM_CMAKE_DIR=${LLVM_BINARY_DIR}/lib/cmake/llvm
         -DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=ON
         -DLLVM_ENABLE_RUNTIMES=libc
