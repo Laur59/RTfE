@@ -32550,22 +32550,20 @@ static SDValue LowerRotate(SDValue Op, const X86Subtarget &Subtarget,
   // Attempt to fold as unpack(x,x) << zext(splat(y)):
   // rotl(x,y) -> (unpack(x,x) << (y & (bw-1))) >> bw.
   // rotr(x,y) -> (unpack(x,x) >> (y & (bw-1))).
-  if (EltSizeInBits == 8 || EltSizeInBits == 16 || EltSizeInBits == 32) {
-    int BaseRotAmtIdx = -1;
-    if (SDValue BaseRotAmt = DAG.getSplatSourceVector(AmtMod, BaseRotAmtIdx)) {
-      if (EltSizeInBits == 16 && Subtarget.hasSSE41()) {
-        unsigned FunnelOpc = IsROTL ? ISD::FSHL : ISD::FSHR;
-        return DAG.getNode(FunnelOpc, DL, VT, R, R, Amt);
-      }
-      unsigned ShiftX86Opc = IsROTL ? X86ISD::VSHLI : X86ISD::VSRLI;
-      SDValue Lo = DAG.getBitcast(ExtVT, getUnpackl(DAG, DL, VT, R, R));
-      SDValue Hi = DAG.getBitcast(ExtVT, getUnpackh(DAG, DL, VT, R, R));
-      Lo = getTargetVShiftNode(ShiftX86Opc, DL, ExtVT, Lo, BaseRotAmt,
-                               BaseRotAmtIdx, Subtarget, DAG);
-      Hi = getTargetVShiftNode(ShiftX86Opc, DL, ExtVT, Hi, BaseRotAmt,
-                               BaseRotAmtIdx, Subtarget, DAG);
-      return getPack(DAG, Subtarget, DL, VT, Lo, Hi, IsROTL);
+  int BaseRotAmtIdx = -1;
+  if (SDValue BaseRotAmt = DAG.getSplatSourceVector(AmtMod, BaseRotAmtIdx)) {
+    if (EltSizeInBits == 16 && Subtarget.hasSSE41()) {
+      unsigned FunnelOpc = IsROTL ? ISD::FSHL : ISD::FSHR;
+      return DAG.getNode(FunnelOpc, DL, VT, R, R, Amt);
     }
+    unsigned ShiftX86Opc = IsROTL ? X86ISD::VSHLI : X86ISD::VSRLI;
+    SDValue Lo = DAG.getBitcast(ExtVT, getUnpackl(DAG, DL, VT, R, R));
+    SDValue Hi = DAG.getBitcast(ExtVT, getUnpackh(DAG, DL, VT, R, R));
+    Lo = getTargetVShiftNode(ShiftX86Opc, DL, ExtVT, Lo, BaseRotAmt,
+                             BaseRotAmtIdx, Subtarget, DAG);
+    Hi = getTargetVShiftNode(ShiftX86Opc, DL, ExtVT, Hi, BaseRotAmt,
+                             BaseRotAmtIdx, Subtarget, DAG);
+    return getPack(DAG, Subtarget, DL, VT, Lo, Hi, IsROTL);
   }
 
   bool ConstantAmt = ISD::isBuildVectorOfConstantSDNodes(Amt.getNode());
@@ -32667,18 +32665,19 @@ static SDValue LowerRotate(SDValue Op, const X86Subtarget &Subtarget,
     return SignBitSelect(VT, Amt, BuildRotate(R, 1), R);
   }
 
-  bool IsSplatAmt = DAG.isSplatValue(Amt);
   bool LegalVarShifts = supportedVectorVarShift(VT, Subtarget, ISD::SHL) &&
                         supportedVectorVarShift(VT, Subtarget, ISD::SRL);
 
-  // Fallback for splats + all supported variable shifts.
-  // Fallback for non-constants AVX2 vXi16 as well.
-  if (IsSplatAmt || LegalVarShifts || (Subtarget.hasAVX2() && !ConstantAmt)) {
+  // Fallback for all supported (non-uniform) variable shifts.
+  // Use X86ISD::VSHLV/VSRLV to handle Amt=0/AmtR=EltSizeInBits.
+  if (LegalVarShifts) {
     Amt = DAG.getNode(ISD::AND, DL, VT, Amt, AmtMask);
     SDValue AmtR = DAG.getConstant(EltSizeInBits, DL, VT);
     AmtR = DAG.getNode(ISD::SUB, DL, VT, AmtR, Amt);
-    SDValue SHL = DAG.getNode(IsROTL ? ISD::SHL : ISD::SRL, DL, VT, R, Amt);
-    SDValue SRL = DAG.getNode(IsROTL ? ISD::SRL : ISD::SHL, DL, VT, R, AmtR);
+    unsigned OpcL = IsROTL ? X86ISD::VSHLV : X86ISD::VSRLV;
+    unsigned OpcR = IsROTL ? X86ISD::VSRLV : X86ISD::VSHLV;
+    SDValue SHL = DAG.getNode(OpcL, DL, VT, R, Amt);
+    SDValue SRL = DAG.getNode(OpcR, DL, VT, R, AmtR);
     return DAG.getNode(ISD::OR, DL, VT, SHL, SRL);
   }
 
