@@ -9197,8 +9197,9 @@ encoded binary sections. More details can be found in the {doc}`PC Sections Meta
 #### '`memprof`' Metadata
 
 The `memprof` metadata is used to record memory profile data on heap
-allocation calls. Multiple context-sensitive profiles can be represented
-with a single `memprof` metadata attachment.
+allocation calls for profile-guided memory optimization (MemPGO). Multiple
+context-sensitive profiles can be represented with a single `memprof` metadata
+attachment.
 
 Example:
 
@@ -22551,11 +22552,11 @@ behavior. For all other VP intrinsics the result is poison.
 
 The explicit vector length (%evl) creates a mask, %EVLmask, with all
 elements `0 <= i < %evl` set to True, and all other lanes `%evl <= i <
-W` to False.  A new mask %M is calculated with an element-wise AND
-from %mask and %EVLmask:
+W` to False.  A new mask %M is calculated with an element-wise logical and
+of %EVLmask and %mask:
 
 ```
-M = %mask AND %EVLmask
+M = select <W x i1> %EVLmask, <W x i1> %mask, <W x i1> splat (i1 false)
 ```
 
 A vector operation `<opcode>` on vectors `A` and `B` calculates:
@@ -22620,8 +22621,8 @@ is taken from the third argument.
 ;; Lanes at and above %pivot are taken from %on_false
 %atfirst = insertelement <4 x i32> poison, i32 %pivot, i64 0
 %splat = shufflevector <4 x i32> %atfirst, <4 x i32> poison, <4 x i32> zeroinitializer
-%pivotmask = icmp ult <4 x i32> <i32 0, i32 1, i32 2, i32 3>, <4 x i32> %splat
-%mergemask = and <4 x i1> %cond, <4 x i1> %pivotmask
+%pivotmask = icmp ult <4 x i32> <i32 0, i32 1, i32 2, i32 3>, %splat
+%mergemask = select <4 x i1> %pivotmask, <4 x i1> %cond, <4 x i1> splat (i1 false)
 %also.r = select <4 x i1> %mergemask, <4 x i32> %on_true, <4 x i32> %on_false
 ```
 
